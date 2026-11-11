@@ -9,7 +9,11 @@
       <input type="email" name="email" required autocomplete="email" autofocus>
     </label>
     <label>Contraseña
-      <input type="password" name="password" required autocomplete="current-password">
+      <div class="password-field">
+        <input type="password" name="password" id="login-password" required autocomplete="current-password">
+        <button class="password-toggle" type="button" data-password-toggle="login-password"
+                aria-controls="login-password" aria-pressed="false">Mostrar</button>
+      </div>
     </label>
     <button class="btn" type="submit">Ingresar</button>
   </form>

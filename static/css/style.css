@@ -61,6 +61,10 @@ h1 small{font-size:.6em;color:var(--gris);font-weight:400}
 .separador:before,.separador:after{content:"";height:1px;flex:1;background:var(--borde)}
 .google-btn{display:flex;align-items:center;justify-content:center;gap:.55rem;width:100%;border-color:var(--borde);color:var(--texto)}
 .google-btn span{font-weight:700;color:#4285f4}
+.password-field{position:relative}
+.password-field input{padding-right:6rem}
+.password-toggle{position:absolute;right:.4rem;top:50%;transform:translateY(-50%);min-height:32px;padding:.2rem .55rem;border:0;border-radius:6px;background:var(--verde-cl);color:var(--verde-osc);font:inherit;font-size:.85rem;cursor:pointer}
+.password-toggle:focus-visible{outline:2px solid var(--verde-osc);outline-offset:2px}
 input,select,textarea{width:100%;padding:.6rem .7rem;border:1px solid #b9c8b9;border-radius:8px;font:inherit;background:#fff;margin-top:.25rem;min-height:44px}
 input:focus,select:focus,textarea:focus{outline:3px solid #a5d6a7;border-color:var(--verde)}
 input[type=checkbox]{width:auto;min-height:0;margin-right:.4rem}

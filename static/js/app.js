@@ -7,6 +7,18 @@ document.addEventListener("DOMContentLoaded", () => {
     btn.setAttribute("aria-expanded", abierto);
   });
 
+  // Mostrar u ocultar campos de contraseña
+  document.querySelectorAll("[data-password-toggle]").forEach(toggle => {
+    const input = document.getElementById(toggle.dataset.passwordToggle);
+    if (!input) return;
+    toggle.addEventListener("click", () => {
+      const mostrar = input.type === "password";
+      input.type = mostrar ? "text" : "password";
+      toggle.textContent = mostrar ? "Ocultar" : "Mostrar";
+      toggle.setAttribute("aria-pressed", String(mostrar));
+    });
+  });
+
   // Confirmación antes de acciones destructivas
   document.querySelectorAll("form[data-confirmar]").forEach(f =>
     f.addEventListener("submit", e => { if (!confirm(f.dataset.confirmar)) e.preventDefault(); }));

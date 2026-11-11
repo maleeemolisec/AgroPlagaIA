@@ -33,7 +33,11 @@ print("== Acceso y roles")
 c = A.app.test_client()
 A.app.config["GOOGLE_OAUTH_ENABLED"] = False
 check("Panel sin sesión redirige a login", c.get("/dashboard").status_code == 302)
-check("Formulario de login ofrece Google", b"Continuar con Google" in c.get("/login").data)
+login_html = c.get("/login").data
+check("Formulario de login ofrece Google", b"Continuar con Google" in login_html)
+check("Login permite mostrar la contraseña", b'data-password-toggle="login-password"' in login_html)
+check("Registro permite mostrar ambas contraseñas",
+      c.get("/registro").data.count(b'class="password-toggle"') == 2)
 rg = c.get("/login/google", follow_redirects=True)
 check("Google sin configurar muestra aviso", "todavía no está configurado" in rg.get_data(as_text=True))
 A.app.config["GOOGLE_OAUTH_ENABLED"] = True
@@ -60,6 +64,8 @@ r = login(c, "productor@agroplaga.com", "mala")
 check("Login con clave incorrecta falla", "incorrectos" in r.get_data(as_text=True))
 r = login(c, "productor@agroplaga.com", "Productor2026")
 check("Login productor correcto", "Hola, Productor" in r.get_data(as_text=True))
+check("Perfil permite mostrar ambas contraseñas",
+      c.get("/perfil").data.count(b'class="password-toggle"') == 2)
 check("Productor NO accede a /admin/usuarios (403)", c.get("/admin/usuarios").status_code == 403)
 h = c.get("/campos").get_data(as_text=True)
 check("Productor ve sus campos", "La Esperanza" in h and "Los Aromos" not in h)

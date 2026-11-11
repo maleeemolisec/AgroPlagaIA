@@ -8,8 +8,20 @@
     <input type="hidden" name="_csrf" value="{{ csrf_token }}">
     <label>Nombre <input type="text" name="nombre" value="{{ g.user.nombre }}" required minlength="3"></label>
     <fieldset><legend>Cambiar contraseña (opcional)</legend>
-      <label>Contraseña actual <input type="password" name="actual" autocomplete="current-password"></label>
-      <label>Nueva contraseña <input type="password" name="nueva" minlength="8" autocomplete="new-password"></label>
+      <label>Contraseña actual
+        <div class="password-field">
+          <input type="password" name="actual" id="actual-password" autocomplete="current-password">
+          <button class="password-toggle" type="button" data-password-toggle="actual-password"
+                  aria-controls="actual-password" aria-pressed="false">Mostrar</button>
+        </div>
+      </label>
+      <label>Nueva contraseña
+        <div class="password-field">
+          <input type="password" name="nueva" id="nueva-password" minlength="8" autocomplete="new-password">
+          <button class="password-toggle" type="button" data-password-toggle="nueva-password"
+                  aria-controls="nueva-password" aria-pressed="false">Mostrar</button>
+        </div>
+      </label>
     </fieldset>
     <button class="btn" type="submit">Guardar cambios</button>
   </form>

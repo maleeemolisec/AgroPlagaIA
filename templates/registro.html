@@ -12,11 +12,19 @@
       <input type="email" name="email" value="{{ email }}" required autocomplete="email">
     </label>
     <label>Contraseña <small>(8+ caracteres, letras y números)</small>
-      <input type="password" name="password" id="password" required minlength="8" autocomplete="new-password">
+      <div class="password-field">
+        <input type="password" name="password" id="password" required minlength="8" autocomplete="new-password">
+        <button class="password-toggle" type="button" data-password-toggle="password"
+                aria-controls="password" aria-pressed="false">Mostrar</button>
+      </div>
       <span class="fuerza" id="fuerza"></span>
     </label>
     <label>Repetir contraseña
-      <input type="password" name="password2" required autocomplete="new-password" data-igual="password">
+      <div class="password-field">
+        <input type="password" name="password2" id="password2" required autocomplete="new-password" data-igual="password">
+        <button class="password-toggle" type="button" data-password-toggle="password2"
+                aria-controls="password2" aria-pressed="false">Mostrar</button>
+      </div>
     </label>
     <button class="btn" type="submit">Registrarme</button>
   </form>
