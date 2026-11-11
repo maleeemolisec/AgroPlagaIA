@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block titulo %}Nuevo análisis{% endblock %}
+{% block head %}<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">{% endblock %}
+{% block contenido %}
+<section class="tarjeta formulario">
+  <h1>📷 Nuevo análisis</h1>
+  {% if not lotes %}
+    <p class="vacio">Necesitás al menos un lote activo. <a href="{{ url_for('campos_lista') }}">Registrá un campo y un lote</a>.</p>
+  {% else %}
+  <form method="post" enctype="multipart/form-data" novalidate data-validar data-analisis id="formAnalisis">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <label>Lote
+      <select name="lote_id" id="lote_id" required>
+        <option value="">— Elegir lote —</option>
+        {% for l in lotes %}<option value="{{ l.id }}" data-lat="{{ l.latitud if l.latitud is not none else '' }}" data-lng="{{ l.longitud if l.longitud is not none else '' }}" {{ 'selected' if preseleccion == l.id }}>{{ l.campo_nombre }} / {{ l.nombre }} ({{ l.cultivo_nombre }})</option>{% endfor %}
+      </select></label>
+    <label>Fotografía de la hoja o planta
+      <input type="file" name="foto" id="foto" accept="image/*" capture="environment" required></label>
+    <p class="ayuda">Consejo: foto nítida, con buena luz, la hoja ocupando buena parte del cuadro y sin dedos tapando. Máx. 10 MB.</p>
+    <img id="vista" class="vista" alt="Vista previa de la foto" hidden>
+    <label>Observaciones (opcional) <textarea name="observaciones" rows="2" maxlength="500" placeholder="Ej.: manchas en hojas bajeras, tras 3 días de lluvia"></textarea></label>
+    <p class="ayuda">Ubicación de la toma (por defecto la del campo). Podés tocar el mapa o usar tu ubicación.</p>
+    <div id="mapa" class="mapa mapa-chico"></div>
+    <div class="fila">
+      <label>Latitud <input type="text" name="latitud" id="latitud" inputmode="decimal"></label>
+      <label>Longitud <input type="text" name="longitud" id="longitud" inputmode="decimal"></label>
+      <button type="button" class="btn btn-sec" id="btnUbicacion">📍 Usar mi ubicación</button>
+    </div>
+    <div class="acciones"><button class="btn" type="submit" id="btnAnalizar">Analizar con IA</button>
+      <a class="btn btn-sec" href="{{ url_for('analisis_lista') }}">Cancelar</a></div>
+  </form>
+  {% endif %}
+</section>
+<div class="cargando" id="cargando" hidden><div class="spinner"></div><p>Analizando la fotografía con IA…<br><small>Puede demorar unos segundos</small></p></div>
+{% endblock %}
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="{{ url_for('static', filename='js/mapa_selector.js') }}"></script>
+<script src="{{ url_for('static', filename='js/analisis_form.js') }}"></script>
+{% endblock %}

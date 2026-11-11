@@ -1,0 +1,8 @@
+Flask>=3.0
+Authlib>=1.3
+requests>=2.31
+Pillow>=10.0
+# Solo si usás MySQL (PythonAnywhere, hosting con MySQL):
+PyMySQL>=1.1
+# Para producción en servidores propios (no hace falta en PythonAnywhere):
+# gunicorn>=21

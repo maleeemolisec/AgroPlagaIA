@@ -1,0 +1,18 @@
+digraph NAV {
+  graph [rankdir=TB, fontname="Helvetica", pad=0.3, nodesep=0.35, ranksep=0.6];
+  node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11, fillcolor="#e8f5e9", margin="0.15,0.08"];
+  edge  [color="#555555"];
+  inicio [label="Inicio (público)", fillcolor="#fff8e1"];
+  login [label="Iniciar sesión", fillcolor="#fff8e1"]; reg [label="Crear cuenta", fillcolor="#fff8e1"];
+  panel [label="Panel\n(KPIs, gráficos, mapa)", fillcolor="#c8e6c9"];
+  campos [label="Campos"]; campo [label="Detalle de campo\n+ lotes"]; cform [label="Alta / edición\nde campo"]; lform [label="Alta / edición\nde lote"];
+  analisis [label="Historial de análisis\n(filtros + búsqueda)"]; anuevo [label="Nuevo análisis\n(foto + ubicación)", fillcolor="#bbdefb"]; aver [label="Resultado del análisis", fillcolor="#bbdefb"]; aedit [label="Corregir / validar"];
+  informes [label="Informes"]; iver [label="Informe por lote / cultivo\n(imprimir, guardar con IA)"];
+  enf [label="Catálogo de enfermedades"]; perfil [label="Mi perfil"];
+  adm [label="Administración (solo admin)", fillcolor="#ffe0b2"]; ausr [label="Usuarios y roles", fillcolor="#ffe0b2"]; acul [label="Cultivos", fillcolor="#ffe0b2"];
+  inicio -> login; inicio -> reg; reg -> login; login -> panel;
+  panel -> campos; panel -> analisis; panel -> informes; panel -> enf; panel -> perfil; panel -> adm; panel -> anuevo;
+  campos -> campo; campos -> cform; campo -> lform; campo -> anuevo; campo -> iver;
+  analisis -> anuevo; anuevo -> aver; analisis -> aver; aver -> aedit;
+  informes -> iver; adm -> ausr; adm -> acul; adm -> enf [style=dashed];
+}

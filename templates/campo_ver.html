@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+{% block titulo %}{{ campo.nombre }}{% endblock %}
+{% block contenido %}
+<div class="encabezado">
+  <h1>{{ campo.nombre }}</h1>
+  {% if puede_editar %}
+  <div class="acciones">
+    <a class="btn btn-sec" href="{{ url_for('campo_editar', cid=campo.id) }}">✏️ Editar</a>
+    <form method="post" action="{{ url_for('campo_eliminar', cid=campo.id) }}" class="inline" data-confirmar="¿Eliminar este campo con TODOS sus lotes y análisis?">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn btn-peligro" type="submit">🗑️ Eliminar</button></form>
+  </div>{% endif %}
+</div>
+<p class="meta">{{ campo.localidad or '—' }}{% if campo.provincia %}, {{ campo.provincia }}{% endif %} · {{ campo.superficie_ha or '—' }} ha
+  {% if campo.latitud is not none %}· 📍 {{ '%.5f'|format(campo.latitud) }}, {{ '%.5f'|format(campo.longitud) }}{% endif %}</p>
+<section class="tarjeta">
+  <div class="encabezado"><h2>Lotes</h2>
+    {% if puede_editar %}<a class="btn btn-sm" href="{{ url_for('lote_nuevo', cid=campo.id) }}">+ Nuevo lote</a>{% endif %}</div>
+  {% if lotes %}
+  <div class="tabla-wrap"><table>
+    <thead><tr><th>Lote</th><th>Cultivo</th><th>Sup. (ha)</th><th>Siembra</th><th>Estado</th><th>Análisis</th><th></th></tr></thead>
+    <tbody>{% for l in lotes %}
+      <tr><td>{{ l.nombre }}</td><td>{{ l.cultivo_nombre }}</td><td>{{ l.superficie_ha or '—' }}</td>
+        <td>{{ l.fecha_siembra|fecha('%d/%m/%Y') }}</td><td>{{ l.estado }}</td>
+        <td><a href="{{ url_for('analisis_lista', lote=l.id) }}">{{ l.n_analisis }}</a></td>
+        <td class="acciones-fila">
+          {% if l.estado == 'activo' %}<a href="{{ url_for('analisis_nuevo', lote=l.id) }}">📷 Analizar</a>{% endif %}
+          <a href="{{ url_for('informe_ver', tipo='lote', id=l.id) }}">📄 Informe</a>
+          {% if puede_editar %}<a href="{{ url_for('lote_editar', lid=l.id) }}">✏️</a>
+          <form method="post" action="{{ url_for('lote_eliminar', lid=l.id) }}" class="inline" data-confirmar="¿Eliminar el lote y sus análisis?">
+            <input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn-link rojo" type="submit">🗑️</button></form>{% endif %}
+        </td></tr>
+    {% endfor %}</tbody></table></div>
+  {% else %}<p class="vacio">Este campo todavía no tiene lotes.</p>{% endif %}
+</section>
+{% endblock %}

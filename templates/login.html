@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block titulo %}Ingresar{% endblock %}
+{% block contenido %}
+<section class="tarjeta formulario angosto">
+  <h1>Iniciar sesión</h1>
+  <form method="post" novalidate data-validar>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <label>Correo electrónico
+      <input type="email" name="email" required autocomplete="email" autofocus>
+    </label>
+    <label>Contraseña
+      <input type="password" name="password" required autocomplete="current-password">
+    </label>
+    <button class="btn" type="submit">Ingresar</button>
+  </form>
+  <div class="separador">o</div>
+  <a class="btn btn-sec google-btn" href="{{ url_for('login_google', next=request.args.get('next', '')) }}">
+    <span aria-hidden="true">G</span> Continuar con Google
+  </a>
+  {% if not google_habilitado %}
+    <p class="ayuda">El administrador debe configurar las credenciales de Google para activar esta opción.</p>
+  {% endif %}
+  <p class="aparte">¿No tenés cuenta? <a href="{{ url_for('registro') }}">Registrate</a></p>
+</section>
+{% endblock %}

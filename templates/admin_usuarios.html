@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block titulo %}Usuarios{% endblock %}
+{% block contenido %}
+<h1>Administración de usuarios</h1>
+<div class="tabla-wrap"><table><thead><tr><th>Nombre</th><th>Correo</th><th>Rol</th><th>Activo</th><th>Alta</th><th></th></tr></thead><tbody>
+{% for u in usuarios %}
+<tr>
+  <td>{{ u.nombre }}</td><td>{{ u.email }}</td>
+  <td><select name="rol" form="f{{ u.id }}">{% for r in ['admin','tecnico','productor'] %}<option {{ 'selected' if u.rol == r }}>{{ r }}</option>{% endfor %}</select></td>
+  <td><input type="checkbox" form="f{{ u.id }}" name="activo" {{ 'checked' if u.activo }}></td><td>{{ u.creado|fecha('%d/%m/%Y') }}</td>
+  <td class="acciones-fila"><form id="f{{ u.id }}" method="post" action="{{ url_for('admin_usuario_editar', uid=u.id) }}" class="inline"><input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn btn-sm" type="submit">Guardar</button></form>
+  {% if u.id != g.user.id %}<form method="post" action="{{ url_for('admin_usuario_eliminar', uid=u.id) }}" class="inline" data-confirmar="¿Eliminar este usuario?">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn btn-sm btn-peligro" type="submit">Eliminar</button></form>{% endif %}</td></tr>
+{% endfor %}</tbody></table></div>
+<section class="tarjeta"><h3>Niveles de acceso</h3><ul>
+  <li><b>admin</b>: gestiona usuarios, cultivos y catálogo de enfermedades; ve y edita todo.</li>
+  <li><b>tecnico</b>: ve los campos y análisis de todos los productores y puede validar diagnósticos.</li>
+  <li><b>productor</b>: gestiona únicamente sus propios campos, lotes, análisis e informes.</li></ul></section>
+{% endblock %}

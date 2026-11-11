@@ -1,0 +1,10 @@
+"""Punto de entrada WSGI (PythonAnywhere u otros hostings).
+En PythonAnywhere, en el archivo WSGI de la pestaña Web, usá:
+
+    import sys
+    sys.path.insert(0, "/home/TU_USUARIO/agroplaga")
+    from wsgi import application
+"""
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from app import app as application  # noqa: E402

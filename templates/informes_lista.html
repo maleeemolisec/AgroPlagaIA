@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block titulo %}Informes{% endblock %}
+{% block contenido %}
+<h1>Informes</h1>
+<section class="grilla-2">
+  <article class="tarjeta"><h2>Por lote</h2>
+    <form method="get" action="{{ url_for('informe_ver') }}"><input type="hidden" name="tipo" value="lote">
+      <label>Lote <select name="id" required><option value="">— Elegir —</option>
+        {% for l in lotes %}<option value="{{ l.id }}">{{ l.campo_nombre }} / {{ l.nombre }}</option>{% endfor %}</select></label>
+      <button class="btn" type="submit">Ver informe</button></form></article>
+  <article class="tarjeta"><h2>Por cultivo</h2>
+    <form method="get" action="{{ url_for('informe_ver') }}"><input type="hidden" name="tipo" value="cultivo">
+      <label>Cultivo <select name="id" required><option value="">— Elegir —</option>
+        {% for c in cultivos %}<option value="{{ c.id }}">{{ c.nombre }}</option>{% endfor %}</select></label>
+      <button class="btn" type="submit">Ver informe</button></form></article>
+</section>
+<section class="tarjeta"><h2>Informes guardados</h2>
+  {% if guardados %}<div class="tabla-wrap"><table><thead><tr><th>Fecha</th><th>Título</th><th></th></tr></thead><tbody>
+    {% for i in guardados %}<tr><td>{{ i.creado|fecha }}</td><td>{{ i.titulo }}</td>
+      <td class="acciones-fila"><a href="{{ url_for('informe_guardado', iid=i.id) }}">Abrir</a>
+        <form method="post" action="{{ url_for('informe_eliminar', iid=i.id) }}" class="inline" data-confirmar="¿Eliminar el informe?">
+          <input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn-link rojo" type="submit">🗑️</button></form></td></tr>{% endfor %}
+  </tbody></table></div>{% else %}<p class="vacio">Todavía no guardaste informes.</p>{% endif %}
+</section>
+{% endblock %}

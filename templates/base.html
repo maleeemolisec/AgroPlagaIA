@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#2e7d32">
+  <title>{% block titulo %}AgroPlaga IA{% endblock %} · AgroPlaga IA</title>
+  <link rel="icon" type="image/png" href="{{ url_for('static', filename='img/agroplaga-icon.png') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+<header class="topbar">
+  <a class="marca" href="{{ url_for('inicio') }}"><img src="{{ url_for('static', filename='img/agroplaga-icon.png') }}" alt=""> AgroPlaga <b>IA</b></a>
+  <button class="menu-btn" id="menuBtn" aria-label="Abrir menú" aria-expanded="false">☰</button>
+  <nav id="menu" class="menu">
+    {% if g.user %}
+      <a href="{{ url_for('dashboard') }}">Panel</a>
+      <a href="{{ url_for('campos_lista') }}">Campos</a>
+      <a href="{{ url_for('analisis_lista') }}">Análisis</a>
+      <a href="{{ url_for('informes_lista') }}">Informes</a>
+      <a href="{{ url_for('enfermedades_lista') }}">Enfermedades</a>
+      {% if g.user.rol == 'admin' %}
+        <a href="{{ url_for('admin_usuarios') }}">Usuarios</a>
+        <a href="{{ url_for('admin_cultivos') }}">Cultivos</a>
+      {% endif %}
+      <a href="{{ url_for('perfil') }}" class="usuario">👤 {{ g.user.nombre.split(' ')[0] }} <small>({{ g.user.rol }})</small></a>
+      <form method="post" action="{{ url_for('logout') }}" class="inline">
+        <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+        <button class="btn-link" type="submit">Salir</button>
+      </form>
+    {% else %}
+      <a href="{{ url_for('login') }}">Ingresar</a>
+      <a href="{{ url_for('registro') }}" class="btn btn-sm">Crear cuenta</a>
+    {% endif %}
+  </nav>
+</header>
+
+<main class="contenedor">
+  {% with mensajes = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in mensajes %}
+      <div class="alerta alerta-{{ cat }}" role="alert">{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+  {% block contenido %}{% endblock %}
+</main>
+
+<footer class="pie">
+  AgroPlaga IA · Trabajo Final Integrador – Aplicaciones Informáticas ·
+  <span>Los resultados de la IA son orientativos y no reemplazan la inspección de un profesional.</span>
+</footer>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

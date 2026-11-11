@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block titulo %}Análisis{% endblock %}
+{% block contenido %}
+<div class="encabezado"><h1>Historial de análisis</h1><a class="btn" href="{{ url_for('analisis_nuevo') }}">📷 Nuevo análisis</a></div>
+<form method="get" class="filtros tarjeta">
+  <label>Lote <select name="lote"><option value="">Todos</option>
+    {% for l in lotes %}<option value="{{ l.id }}" {{ 'selected' if f.get('lote')|string == l.id|string }}>{{ l.campo_nombre }} / {{ l.nombre }}</option>{% endfor %}</select></label>
+  <label>Cultivo <select name="cultivo"><option value="">Todos</option>
+    {% for c in cultivos %}<option value="{{ c.id }}" {{ 'selected' if f.get('cultivo')|string == c.id|string }}>{{ c.nombre }}</option>{% endfor %}</select></label>
+  <label>Estado <select name="estado"><option value="">Todos</option>
+    {% for e in ['sano','enfermo','dudoso','no_planta'] %}<option value="{{ e }}" {{ 'selected' if f.get('estado') == e }}>{{ e|replace('_',' ')|capitalize }}</option>{% endfor %}</select></label>
+  <label>Desde <input type="date" name="desde" value="{{ f.get('desde','') }}"></label>
+  <label>Hasta <input type="date" name="hasta" value="{{ f.get('hasta','') }}"></label>
+  <div class="acciones"><button class="btn btn-sm" type="submit">Filtrar</button><a class="btn btn-sm btn-sec" href="{{ url_for('analisis_lista') }}">Limpiar</a></div>
+</form>
+<label class="buscador">🔎 Buscar en los resultados <input type="search" id="buscar" placeholder="Escribí para filtrar la tabla (lote, enfermedad…)"></label>
+{% if analisis %}
+<div class="tabla-wrap"><table id="tablaAnalisis">
+  <thead><tr><th>Foto</th><th>Fecha</th><th>Campo / lote</th><th>Cultivo</th><th>Resultado</th><th>Severidad</th><th></th></tr></thead>
+  <tbody>{% for a in analisis %}
+    <tr><td><img class="mini" loading="lazy" src="{{ url_for('static', filename='uploads/' ~ a.foto) }}" alt="Foto del análisis {{ a.id }}"></td>
+      <td>{{ a.fecha|fecha }}</td><td>{{ a.campo_nombre }} / {{ a.lote_nombre }}</td><td>{{ a.cultivo_nombre }}</td>
+      <td><span class="chip chip-{{ a.estado }}">{{ a.enfermedad_nombre or a.enfermedad_texto or a.estado|replace('_',' ') }}</span></td>
+      <td>{{ a.severidad or '—' }}</td><td><a href="{{ url_for('analisis_ver', aid=a.id) }}">Ver</a></td></tr>
+  {% endfor %}</tbody></table></div>
+<p class="meta">{{ analisis|length }} resultado(s)</p>
+{% else %}<p class="vacio tarjeta">No hay análisis con esos filtros.</p>{% endif %}
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/filtro_tabla.js') }}"></script>{% endblock %}

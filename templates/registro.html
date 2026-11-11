@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block titulo %}Crear cuenta{% endblock %}
+{% block contenido %}
+<section class="tarjeta formulario angosto">
+  <h1>Crear cuenta</h1>
+  <form method="post" novalidate data-validar>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <label>Nombre y apellido
+      <input type="text" name="nombre" value="{{ nombre }}" required minlength="3" autocomplete="name">
+    </label>
+    <label>Correo electrónico
+      <input type="email" name="email" value="{{ email }}" required autocomplete="email">
+    </label>
+    <label>Contraseña <small>(8+ caracteres, letras y números)</small>
+      <input type="password" name="password" id="password" required minlength="8" autocomplete="new-password">
+      <span class="fuerza" id="fuerza"></span>
+    </label>
+    <label>Repetir contraseña
+      <input type="password" name="password2" required autocomplete="new-password" data-igual="password">
+    </label>
+    <button class="btn" type="submit">Registrarme</button>
+  </form>
+  <p class="aparte">¿Ya tenés cuenta? <a href="{{ url_for('login') }}">Ingresá</a></p>
+</section>
+{% endblock %}

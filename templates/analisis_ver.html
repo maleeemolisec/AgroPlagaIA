@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block titulo %}Análisis #{{ a.id }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">{% endblock %}
+{% block contenido %}
+<div class="encabezado">
+  <h1>Análisis #{{ a.id }}</h1>
+  <div class="acciones">
+    <a class="btn btn-sec" href="{{ url_for('analisis_editar', aid=a.id) }}">✏️ Corregir / validar</a>
+    {% if puede_borrar %}
+    <form method="post" action="{{ url_for('analisis_eliminar', aid=a.id) }}" class="inline" data-confirmar="¿Eliminar este análisis y su foto?">
+      <input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn btn-peligro" type="submit">🗑️ Eliminar</button></form>{% endif %}
+  </div>
+</div>
+{% if a.motor == 'demo' %}<div class="alerta alerta-warning">Este análisis se hizo en <b>modo demo</b> (sin IA externa): solo se calculó el índice de daño por color.</div>{% endif %}
+<section class="grilla-2">
+  <article class="tarjeta">
+    <img class="foto" src="{{ url_for('static', filename='uploads/' ~ a.foto) }}" alt="Fotografía analizada">
+    <p class="meta">{{ a.fecha|fecha }} · {{ a.campo_nombre }} / {{ a.lote_nombre }} · tomada por {{ a.autor }}</p>
+    {% if a.latitud is not none %}<div id="mapa" class="mapa mapa-chico" data-lat="{{ a.latitud }}" data-lng="{{ a.longitud }}"></div>{% endif %}
+  </article>
+  <article class="tarjeta resultado">
+    <h2>Resultado</h2>
+    <p><span class="chip chip-{{ a.estado }} grande">{{ a.estado|replace('_',' ')|capitalize }}</span>
+       {% if a.validado %}<span class="chip chip-validado">✔ Validado por una persona</span>{% endif %}</p>
+    <dl>
+      <dt>Cultivo del lote</dt><dd>{{ a.cultivo_nombre }}</dd>
+      <dt>Cultivo identificado por la IA</dt><dd>{{ a.cultivo_detectado or '—' }}</dd>
+      <dt>Posible problema</dt><dd>{{ a.enfermedad_nombre or a.enfermedad_texto or 'Sin hallazgos' }}</dd>
+      <dt>Severidad estimada</dt><dd>{{ a.severidad or '—' }}</dd>
+      <dt>Confianza de la IA</dt><dd>{% if a.confianza is not none %}<span class="barra"><i style="width: {{ (a.confianza*100)|round|int }}%"></i></span> {{ (a.confianza*100)|round|int }}%{% else %}—{% endif %}</dd>
+      <dt>Índice de daño visual</dt><dd>{% if a.indice_dano is not none %}{{ a.indice_dano }}% del tejido con color amarillento/pardo{% else %}No calculable{% endif %}</dd>
+      <dt>Motor</dt><dd>{{ {'gemini': 'Gemini (visión artificial)', 'demo': 'Modo demo (sin IA externa)', 'prueba': 'Dato de prueba'}.get(a.motor, a.motor) }}</dd>
+    </dl>
+    {% set s = a.sintomas|json_lista %}{% if s %}<h3>Síntomas observados</h3><ul>{% for x in s %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+    {% set c = a.causas|json_lista %}{% if c %}<h3>Posibles causas</h3><ul>{% for x in c %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+    {% set r = a.recomendaciones|json_lista %}{% if r %}<h3>Recomendaciones de inspección</h3><ul>{% for x in r %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+    {% if enf and enf.recomendacion %}<h3>Del catálogo: {{ enf.nombre }}</h3><p>{{ enf.recomendacion }}</p>{% endif %}
+    {% if a.observaciones %}<h3>Observaciones</h3><p>{{ a.observaciones }}</p>{% endif %}
+    <p class="aviso">⚠️ {{ aviso }}</p>
+  </article>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="{{ url_for('static', filename='js/mapa_fijo.js') }}"></script>
+{% endblock %}

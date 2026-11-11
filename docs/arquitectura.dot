@@ -1,0 +1,19 @@
+digraph ARQ {
+  graph [rankdir=LR, fontname="Helvetica", pad=0.3, nodesep=0.5, ranksep=0.9];
+  node  [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=12, margin="0.2,0.12"];
+  edge  [fontname="Helvetica", fontsize=10, color="#555555"];
+  subgraph cluster_cli { label="Cliente (navegador / celular)"; style="rounded"; color="#9e9e9e"; fontname="Helvetica";
+    web [label="HTML5 + CSS3 responsive\nJavaScript (validaciones,\nfiltros, geolocalización)", fillcolor="#e8f5e9"];
+    libs [label="Leaflet (mapas)\nChart.js (gráficos)", fillcolor="#e8f5e9"]; }
+  subgraph cluster_srv { label="Servidor (Flask / Python)"; style="rounded"; color="#2e7d32"; fontname="Helvetica";
+    app [label="app.py\nRutas, sesiones, roles,\nCRUD, validaciones", fillcolor="#c8e6c9"];
+    ia  [label="ia.py\nVisión artificial +\nÍndice de daño (Pillow)", fillcolor="#bbdefb"];
+    dbl [label="database.py\nCapa de datos\nSQLite / MySQL", fillcolor="#c8e6c9"]; }
+  bd  [label="Base de datos\n7 tablas relacionadas", shape=cylinder, fillcolor="#ffe0b2"];
+  fs  [label="static/uploads\nFotografías", shape=folder, fillcolor="#ffe0b2"];
+  gem [label="API de Gemini\n(Google AI Studio)", fillcolor="#e1bee7"];
+  web -> app [label="HTTPS (formularios, fetch)"];
+  libs -> web [style=dashed, label="CDN"];
+  app -> ia [label="foto + catálogo"]; ia -> gem [label="imagen + prompt\n→ JSON"];
+  app -> dbl; dbl -> bd [label="SQL parametrizado"]; app -> fs [label="guarda / lee"];
+}
