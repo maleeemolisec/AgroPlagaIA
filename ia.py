@@ -31,12 +31,16 @@ def api_key():
     return os.environ.get("GEMINI_API_KEY", "").strip()
 
 
+def _abrir_imagen(origen):
+    return Image.open(io.BytesIO(origen) if isinstance(origen, bytes) else origen)
+
+
 # --------------------------------------------------------------------------
 # 1) Procesamiento de imagen propio
 # --------------------------------------------------------------------------
 def indice_dano(ruta):
     """Devuelve el % (0-100) de tejido vegetal con color amarillento/pardo/necrótico."""
-    img = Image.open(ruta).convert("RGB")
+    img = _abrir_imagen(ruta).convert("RGB")
     img.thumbnail((160, 160))
     hsv = img.convert("HSV")
     verde = danio = 0
@@ -55,7 +59,7 @@ def indice_dano(ruta):
 
 def _preparar_imagen(ruta, lado=1024):
     """Reduce la foto para enviarla a la API (menos datos, más rápido)."""
-    img = Image.open(ruta).convert("RGB")
+    img = _abrir_imagen(ruta).convert("RGB")
     img.thumbnail((lado, lado))
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=85)

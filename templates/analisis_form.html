@@ -16,7 +16,7 @@
       </select></label>
     <label>Fotografía de la hoja o planta
       <input type="file" name="foto" id="foto" accept="image/*" capture="environment" required></label>
-    <p class="ayuda">Consejo: foto nítida, con buena luz, la hoja ocupando buena parte del cuadro y sin dedos tapando. Máx. 10 MB.</p>
+    <p class="ayuda">Consejo: foto nítida, con buena luz, la hoja ocupando buena parte del cuadro y sin dedos tapando. Máx. {{ max_foto_mb }} MB.</p>
     <img id="vista" class="vista" alt="Vista previa de la foto" hidden>
     <label>Observaciones (opcional) <textarea name="observaciones" rows="2" maxlength="500" placeholder="Ej.: manchas en hojas bajeras, tras 3 días de lluvia"></textarea></label>
     <p class="ayuda">Ubicación de la toma (por defecto la del campo). Podés tocar el mapa o usar tu ubicación.</p>

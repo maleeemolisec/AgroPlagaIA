@@ -18,7 +18,7 @@
 <div class="tabla-wrap"><table id="tablaAnalisis">
   <thead><tr><th>Foto</th><th>Fecha</th><th>Campo / lote</th><th>Cultivo</th><th>Resultado</th><th>Severidad</th><th></th></tr></thead>
   <tbody>{% for a in analisis %}
-    <tr><td><img class="mini" loading="lazy" src="{{ url_for('static', filename='uploads/' ~ a.foto) }}" alt="Foto del análisis {{ a.id }}"></td>
+    <tr><td><img class="mini" loading="lazy" src="{{ url_for('analisis_foto', aid=a.id) }}" alt="Foto del análisis {{ a.id }}"></td>
       <td>{{ a.fecha|fecha }}</td><td>{{ a.campo_nombre }} / {{ a.lote_nombre }}</td><td>{{ a.cultivo_nombre }}</td>
       <td><span class="chip chip-{{ a.estado }}">{{ a.enfermedad_nombre or a.enfermedad_texto or a.estado|replace('_',' ') }}</span></td>
       <td>{{ a.severidad or '—' }}</td><td><a href="{{ url_for('analisis_ver', aid=a.id) }}">Ver</a></td></tr>

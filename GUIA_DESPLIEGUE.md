@@ -69,7 +69,15 @@ Este comando inserta únicamente cultivos o enfermedades faltantes; no borra cue
 3. En Vercel redepliega el proyecto para aplicar las variables.
 4. El registro envía un código de 6 dígitos, válido por 10 minutos. Luego de validarlo, se crea la cuenta y la sesión queda iniciada. No publiques la contraseña de aplicación ni la guardes en Git.
 
-El almacenamiento de fotos también debe migrarse a almacenamiento persistente externo para conservarlas en Vercel.
+Las fotos en Vercel requieren un almacenamiento persistente externo, configurado en los pasos siguientes.
+
+### Guardar fotos en Vercel
+Las funciones de Vercel no conservan archivos escritos dentro del proyecto. Para que las fotos se guarden y sigan visibles:
+
+1. En el proyecto de Vercel, abrí **Storage** y creá un store **Blob** con acceso **Private**.
+2. Conectá ese store al proyecto de AgroPlaga IA y habilitá el entorno **Production** (y **Preview** si también querés probar allí). La conexión proporciona las credenciales de Blob a la función; no publiques el token ni lo agregues a Git.
+3. Hacé un nuevo despliegue. Las imágenes nuevas se almacenarán en Blob y se mostrarán a través de una ruta que requiere iniciar sesión. Las fotos antiguas que solo existían en el disco temporal de despliegues anteriores no se pueden recuperar desde Vercel.
+4. En Vercel se aceptan fotos de hasta **4 MB** para respetar el límite de tamaño de las solicitudes de Functions. En ejecución local sigue vigente el límite de **10 MB**.
 
 ### Habilitar el inicio de sesión con Google
 1. En [Google Cloud Console](https://console.cloud.google.com/), creá o seleccioná un proyecto y configurá la pantalla de consentimiento de OAuth.

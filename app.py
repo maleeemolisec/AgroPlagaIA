@@ -7,6 +7,7 @@ Backend Flask. Estructura:
 """
 import hashlib
 import hmac
+import io
 import json
 import os
 import re
@@ -23,7 +24,7 @@ from functools import wraps
 from authlib.integrations.base_client.errors import OAuthError
 from authlib.integrations.flask_client import OAuth
 from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
-                   request, session, url_for)
+                   request, send_file, send_from_directory, session, url_for)
 from joserfc.errors import JoseError
 from PIL import Image, UnidentifiedImageError
 from requests.exceptions import RequestException
@@ -49,10 +50,12 @@ import ia  # noqa: E402
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
 EXT_PERMITIDAS = {"jpg", "jpeg", "png", "webp"}
+VERCEL_RUNTIME = bool(os.environ.get("VERCEL"))
+MAX_FOTO_BYTES = 4 * 1024 * 1024 if VERCEL_RUNTIME else 10 * 1024 * 1024
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-cambiar-en-produccion")
-app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024          # 10 MB por foto
+app.config["MAX_CONTENT_LENGTH"] = MAX_FOTO_BYTES + (256 * 1024 if VERCEL_RUNTIME else 0)
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["GOOGLE_CLIENT_ID"] = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
@@ -73,7 +76,8 @@ google_oauth = oauth.register(
     server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
     client_kwargs={"scope": "openid email profile"},
 )
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+if not VERCEL_RUNTIME:
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 CODIGO_EMAIL_TTL = 10 * 60
@@ -158,6 +162,11 @@ def cabeceras(resp):
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["X-Frame-Options"] = "SAMEORIGIN"
     return resp
+
+
+@app.context_processor
+def limites_subida():
+    return {"max_foto_mb": MAX_FOTO_BYTES // (1024 * 1024)}
 
 
 def login_required(f):
@@ -830,33 +839,107 @@ def lote_eliminar(lid):
 # ==========================================================================
 # 5. Análisis con IA (CRUD)
 # ==========================================================================
+class ErrorAlmacenFotos(Exception):
+    pass
+
+
+class FotoNoEncontrada(Exception):
+    pass
+
+
+def _blob_sdk():
+    try:
+        from vercel.blob import sync as blob
+    except ImportError as error:
+        raise ErrorAlmacenFotos("Falta instalar vercel-blob.") from error
+    return blob
+
+
+def _usar_blob():
+    return VERCEL_RUNTIME or bool(
+        os.environ.get("BLOB_READ_WRITE_TOKEN")
+        or os.environ.get("VERCEL_BLOB_READ_WRITE_TOKEN")
+    )
+
+
+def _guardar_blob(ruta, contenido):
+    blob = _blob_sdk()
+    try:
+        return blob.put_blob(ruta, contenido, access="private", content_type="image/jpeg")
+    except blob.BlobError as error:
+        raise ErrorAlmacenFotos("No se pudo subir la foto a Vercel Blob.") from error
+
+
+def _leer_blob(ruta):
+    blob = _blob_sdk()
+    try:
+        return blob.get_blob(ruta, access="private")
+    except blob.BlobNotFoundError as error:
+        raise FotoNoEncontrada from error
+    except blob.BlobError as error:
+        raise ErrorAlmacenFotos("No se pudo descargar la foto de Vercel Blob.") from error
+
+
+def _eliminar_blob(ruta):
+    blob = _blob_sdk()
+    try:
+        blob.delete_blob(ruta)
+    except blob.BlobError as error:
+        raise ErrorAlmacenFotos("No se pudo eliminar la foto de Vercel Blob.") from error
+
+
 def borrar_fotos(sql, params):
     for f in db().todos(sql, params):
-        try:
-            os.remove(os.path.join(UPLOAD_DIR, os.path.basename(f["foto"])))
-        except OSError:
-            pass
+        foto = f["foto"]
+        if foto.startswith("blob:"):
+            try:
+                _eliminar_blob(foto[5:])
+            except ErrorAlmacenFotos:
+                app.logger.exception("No se pudo eliminar la foto %s", foto)
+                raise
+        else:
+            try:
+                os.remove(os.path.join(UPLOAD_DIR, os.path.basename(foto)))
+            except FileNotFoundError:
+                pass
+            except OSError:
+                app.logger.warning("No se pudo eliminar la foto local %s", foto, exc_info=True)
 
 
 def guardar_foto(archivo):
-    """Valida (extensión + contenido real de imagen) y guarda con nombre aleatorio."""
+    """Valida y almacena una imagen normalizada; devuelve su clave y los bytes analizados."""
     if not archivo or not archivo.filename:
-        return None, "Seleccioná o tomá una fotografía."
+        return None, "Seleccioná o tomá una fotografía.", None
     ext = archivo.filename.rsplit(".", 1)[-1].lower() if "." in archivo.filename else ""
     if ext not in EXT_PERMITIDAS:
-        return None, "Formato no permitido. Usá JPG, PNG o WEBP."
-    nombre = uuid.uuid4().hex + ".jpg"
-    ruta = os.path.join(UPLOAD_DIR, nombre)
+        return None, "Formato no permitido. Usá JPG, PNG o WEBP.", None
     try:
         img = Image.open(archivo.stream)
         img.verify()
         archivo.stream.seek(0)
         img = Image.open(archivo.stream).convert("RGB")
-        img.thumbnail((1600, 1600))                      # ahorra espacio en disco
-        img.save(ruta, "JPEG", quality=88)
+        img.thumbnail((1600, 1600))
+        salida = io.BytesIO()
+        img.save(salida, "JPEG", quality=88)
     except (UnidentifiedImageError, OSError, ValueError):
-        return None, "El archivo no es una imagen válida."
-    return nombre, None
+        return None, "El archivo no es una imagen válida.", None
+
+    nombre = uuid.uuid4().hex + ".jpg"
+    contenido = salida.getvalue()
+    try:
+        if _usar_blob():
+            ruta = f"analisis/{g.user['id']}/{nombre}"
+            subida = _guardar_blob(ruta, contenido)
+            nombre = "blob:" + subida.pathname
+        else:
+            with open(os.path.join(UPLOAD_DIR, nombre), "wb") as foto_local:
+                foto_local.write(contenido)
+    except (ErrorAlmacenFotos, OSError):
+        app.logger.exception("No se pudo guardar una foto de análisis.")
+        if _usar_blob():
+            return None, "No se pudo guardar la foto. Verificá que Vercel Blob esté conectado al proyecto.", None
+        return None, "No se pudo guardar la foto en el servidor.", None
+    return nombre, None, contenido
 
 
 def lotes_disponibles():
@@ -917,7 +1000,7 @@ def analisis_nuevo():
         if not lote:
             flash("Elegí un lote activo válido.", "danger")
             return render_template("analisis_form.html", lotes=lotes, preseleccion=None)
-        nombre_foto, error = guardar_foto(request.files.get("foto"))
+        nombre_foto, error, contenido_foto = guardar_foto(request.files.get("foto"))
         if error:
             flash(error, "danger")
             return render_template("analisis_form.html", lotes=lotes, preseleccion=lid)
@@ -930,7 +1013,7 @@ def analisis_nuevo():
         catalogo = [e["nombre"] for e in db().todos(
             "SELECT nombre FROM enfermedades WHERE cultivo_id = ? OR cultivo_id IS NULL ORDER BY nombre",
             (lote_db["cultivo_id"],))]
-        r = ia.analizar_foto(os.path.join(UPLOAD_DIR, nombre_foto), lote["cultivo_nombre"], catalogo)
+        r = ia.analizar_foto(contenido_foto, lote["cultivo_nombre"], catalogo)
         enf_id = buscar_enfermedad(r["enfermedad_texto"], lote_db["cultivo_id"])
         aid = db().ejecutar(
             "INSERT INTO analisis (lote_id, usuario_id, foto, latitud, longitud, fecha, cultivo_detectado, estado, "
@@ -957,6 +1040,26 @@ def obtener_analisis(aid):
     if not filas:
         abort(404)
     return filas[0]
+
+
+@app.route("/analisis/<int:aid>/foto")
+@login_required
+def analisis_foto(aid):
+    a = obtener_analisis(aid)
+    if a["foto"].startswith("blob:"):
+        try:
+            foto = _leer_blob(a["foto"][5:])
+        except FotoNoEncontrada:
+            abort(404)
+        except ErrorAlmacenFotos:
+            app.logger.exception("No se pudo leer la foto del análisis %s.", aid)
+            abort(503, "No se pudo cargar la foto. Intentá nuevamente más tarde.")
+        respuesta = send_file(io.BytesIO(foto.body), mimetype="image/jpeg", max_age=0)
+    else:
+        respuesta = send_from_directory(
+            UPLOAD_DIR, os.path.basename(a["foto"]), mimetype="image/jpeg", max_age=0)
+    respuesta.headers["Cache-Control"] = "private, no-store"
+    return respuesta
 
 
 @app.route("/analisis/<int:aid>")

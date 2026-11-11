@@ -6,5 +6,7 @@ Pillow>=10.0
 PyMySQL>=1.1
 # Para PostgreSQL (por ejemplo, Neon en Vercel):
 psycopg[binary]>=3.2
+# Almacenamiento privado y persistente de fotos en Vercel:
+vercel-blob>=0.5.0
 # Para producción en servidores propios (no hace falta en PythonAnywhere):
 # gunicorn>=21

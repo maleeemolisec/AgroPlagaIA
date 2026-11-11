@@ -10,7 +10,7 @@ digraph ARQ {
     ia  [label="ia.py\nVisión artificial +\nÍndice de daño (Pillow)", fillcolor="#bbdefb"];
     dbl [label="database.py\nCapa de datos\nSQLite / MySQL", fillcolor="#c8e6c9"]; }
   bd  [label="Base de datos\n7 tablas relacionadas", shape=cylinder, fillcolor="#ffe0b2"];
-  fs  [label="static/uploads\nFotografías", shape=folder, fillcolor="#ffe0b2"];
+  fs  [label="Fotos de análisis\nLocal: static/uploads\nVercel: Blob privado", shape=folder, fillcolor="#ffe0b2"];
   gem [label="API de Gemini\n(Google AI Studio)", fillcolor="#e1bee7"];
   web -> app [label="HTTPS (formularios, fetch)"];
   libs -> web [style=dashed, label="CDN"];

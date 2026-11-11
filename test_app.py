@@ -1,5 +1,6 @@
 """Pruebas automáticas de AgroPlaga IA (python test_app.py). Usa una base temporal."""
 import io, os, re, sys, tempfile, json
+from types import SimpleNamespace
 from unittest.mock import patch
 tmp = tempfile.mkdtemp()
 os.environ["DATABASE_URL"] = "sqlite:///" + os.path.join(tmp, "test.db")
@@ -206,10 +207,34 @@ h = r.get_data(as_text=True)
 check("Análisis guardado en modo demo con aviso", "MODO DEMO" in h or "modo demo" in h)
 aid = A.dbm.DB().uno("SELECT MAX(id) AS m FROM analisis")["m"]
 check("Detalle muestra índice de daño", "Índice de daño visual" in c.get(f"/analisis/{aid}").get_data(as_text=True))
+respuesta_foto = c.get(f"/analisis/{aid}/foto")
+check("Foto JPG guardada se puede volver a servir", respuesta_foto.status_code == 200
+      and respuesta_foto.mimetype == "image/jpeg" and respuesta_foto.data.startswith(b"\xff\xd8"))
+respuesta_foto.close()
 r = c.post("/analisis/nuevo", data={"_csrf": t, "lote_id": str(lid), "foto": (io.BytesIO(b"no soy imagen"), "x.jpg")}, content_type="multipart/form-data", follow_redirects=True)
 check("Archivo falso con extensión .jpg rechazado", "no es una imagen válida" in r.get_data(as_text=True))
 r = c.post("/analisis/nuevo", data={"_csrf": t, "lote_id": str(lid), "foto": (io.BytesIO(b"abc"), "x.exe")}, content_type="multipart/form-data", follow_redirects=True)
 check("Extensión .exe rechazada", "Formato no permitido" in r.get_data(as_text=True))
+foto_blob = foto().getvalue()
+ruta_blob = "analisis/1/prueba.jpg"
+with patch.dict(os.environ, {"BLOB_READ_WRITE_TOKEN": "token-prueba"}), \
+        patch.object(A, "_guardar_blob", return_value=SimpleNamespace(pathname=ruta_blob)):
+    r = c.post("/analisis/nuevo", data={
+        "_csrf": t, "lote_id": str(lid), "foto": (io.BytesIO(foto_blob), "hoja.jpg")
+    }, content_type="multipart/form-data", follow_redirects=True)
+aid_blob = A.dbm.DB().uno("SELECT id, foto FROM analisis ORDER BY id DESC LIMIT 1")
+check("Análisis guarda fotos en Vercel Blob sin escribirlas al disco",
+      aid_blob["foto"] == "blob:" + ruta_blob and "Índice de daño visual" in r.get_data(as_text=True))
+with patch.object(A, "_leer_blob", return_value=SimpleNamespace(body=foto_blob)):
+    respuesta_blob = c.get(f"/analisis/{aid_blob['id']}/foto")
+check("La ruta autenticada sirve imágenes privadas de Blob",
+      respuesta_blob.status_code == 200 and respuesta_blob.mimetype == "image/jpeg"
+      and respuesta_blob.headers["Cache-Control"] == "private, no-store")
+with patch.object(A, "_eliminar_blob") as eliminar_blob:
+    t = csrf(c, f"/analisis/{aid_blob['id']}")
+    respuesta_borrar = c.post(f"/analisis/{aid_blob['id']}/eliminar", data={"_csrf": t})
+check("Eliminar un análisis elimina también su foto de Blob",
+      respuesta_borrar.status_code == 302 and eliminar_blob.call_args.args[0] == ruta_blob)
 r = c.post(f"/analisis/{aid}/editar", data={"_csrf": t, "estado": "enfermo", "enfermedad_id": "1", "observaciones": "Confirmado", "validado": "on"}, follow_redirects=True)
 check("Corrección / validación manual", "Validado por una persona" in r.get_data(as_text=True))
 r = c.get("/analisis?estado=enfermo&cultivo=1")

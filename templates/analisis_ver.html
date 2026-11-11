@@ -14,7 +14,7 @@
 {% if a.motor == 'demo' %}<div class="alerta alerta-warning">Este análisis se hizo en <b>modo demo</b> (sin IA externa): solo se calculó el índice de daño por color.</div>{% endif %}
 <section class="grilla-2">
   <article class="tarjeta">
-    <img class="foto" src="{{ url_for('static', filename='uploads/' ~ a.foto) }}" alt="Fotografía analizada">
+    <img class="foto" src="{{ url_for('analisis_foto', aid=a.id) }}" alt="Fotografía analizada">
     <p class="meta">{{ a.fecha|fecha }} · {{ a.campo_nombre }} / {{ a.lote_nombre }} · tomada por {{ a.autor }}</p>
     {% if a.latitud is not none %}<div id="mapa" class="mapa mapa-chico" data-lat="{{ a.latitud }}" data-lng="{{ a.longitud }}"></div>{% endif %}
   </article>
