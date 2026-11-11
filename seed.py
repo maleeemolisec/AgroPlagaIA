@@ -4,6 +4,7 @@ Uso:
     python seed.py            # crea todo (si la base ya tiene datos, avisa y no toca nada)
     python seed.py --force    # BORRA todo y vuelve a crear
     python seed.py --production  # crea catálogos y pide credenciales para un admin inicial
+    python seed.py --catalogs-only  # agrega catálogos faltantes sin borrar ni crear usuarios
 
 Las fotos de prueba se generan con Pillow (hojas dibujadas), no son fotos reales.
 Los análisis de prueba están marcados con motor = 'prueba'.
@@ -161,16 +162,118 @@ def dibujar_hoja(ruta, estado, enfermedad, semilla):
     img.save(ruta, "JPEG", quality=85)
 
 
+def cargar_catalogos(base):
+    ids_c = {}
+    for nombre, cient, desc in CULTIVOS:
+        cultivo = base.uno("SELECT id FROM cultivos WHERE nombre = ?", (nombre,))
+        if not cultivo:
+            base.ejecutar(
+                "INSERT INTO cultivos (nombre, nombre_cientifico, descripcion) VALUES (?,?,?)",
+                (nombre, cient, desc),
+            )
+            cultivo = base.uno("SELECT id FROM cultivos WHERE nombre = ?", (nombre,))
+        ids_c[nombre] = cultivo["id"]
+    for cult, nombre, cient, agente, sint, rec in ENFERMEDADES:
+        if not base.uno("SELECT id FROM enfermedades WHERE nombre = ?", (nombre,)):
+            base.ejecutar(
+                "INSERT INTO enfermedades "
+                "(cultivo_id, nombre, nombre_cientifico, agente, sintomas, recomendacion) "
+                "VALUES (?,?,?,?,?,?)",
+                (ids_c.get(cult), nombre, cient, agente, sint, rec),
+            )
+    return base.uno(
+        "SELECT (SELECT COUNT(*) FROM cultivos) AS cultivos, "
+        "(SELECT COUNT(*) FROM enfermedades) AS enfermedades"
+    )
+
+
+def crear_admin(base):
+    nombre = input("Nombre del administrador: ").strip()
+    email = input("Correo del administrador: ").strip().lower()
+    clave = getpass("Contraseña (8+ caracteres, letras y números): ")
+    confirmacion = getpass("Repetí la contraseña: ")
+    if len(nombre) < 3 or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        raise SystemExit("Nombre o correo inválidos. Volvé a ejecutar python seed.py --production.")
+    if (len(clave) < 8 or not re.search(r"\d", clave) or not re.search(r"[A-Za-z]", clave)
+            or clave != confirmacion):
+        raise SystemExit("Contraseña inválida o distinta. Volvé a ejecutar python seed.py --production.")
+    if base.uno("SELECT id FROM usuarios WHERE email = ?", (email,)):
+        raise SystemExit("Ya existe una cuenta con ese correo. No se creó otro administrador.")
+    base.ejecutar("INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?,?,?, 'admin')",
+                  (nombre, email, generate_password_hash(clave)))
+
+
 def main():
     force = "--force" in sys.argv
     production = "--production" in sys.argv
+    catalogs_only = "--catalogs-only" in sys.argv
     base = dbm.DB()
+    if catalogs_only:
+        base.uno("SELECT COUNT(*) AS n FROM usuarios")
+        ids_c = {}
+        for nombre, cient, desc in CULTIVOS:
+            cultivo = base.uno("SELECT id FROM cultivos WHERE nombre = ?", (nombre,))
+            if not cultivo:
+                base.ejecutar(
+                    "INSERT INTO cultivos (nombre, nombre_cientifico, descripcion) VALUES (?,?,?)",
+                    (nombre, cient, desc),
+                )
+                cultivo = base.uno("SELECT id FROM cultivos WHERE nombre = ?", (nombre,))
+            ids_c[nombre] = cultivo["id"]
+        for cult, nombre, cient, agente, sint, rec in ENFERMEDADES:
+            enfermedad = base.uno("SELECT id FROM enfermedades WHERE nombre = ?", (nombre,))
+            if not enfermedad:
+                base.ejecutar(
+                    "INSERT INTO enfermedades "
+                    "(cultivo_id, nombre, nombre_cientifico, agente, sintomas, recomendacion) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (ids_c.get(cult), nombre, cient, agente, sint, rec),
+                )
+        base.script("""
+            CREATE TABLE IF NOT EXISTS email_verifications (
+                email VARCHAR(320) PRIMARY KEY,
+                nombre VARCHAR(120) NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                code_hash CHAR(64) NOT NULL,
+                expires_at BIGINT NOT NULL,
+                attempts SMALLINT NOT NULL DEFAULT 0,
+                last_sent_at BIGINT NOT NULL
+            )
+        """)
+        counts = base.uno(
+            "SELECT (SELECT COUNT(*) FROM cultivos) AS cultivos, "
+            "(SELECT COUNT(*) FROM enfermedades) AS enfermedades"
+        )
+        base.cerrar()
+        print(f"Catálogos listos: {counts['cultivos']} cultivos, {counts['enfermedades']} enfermedades.")
+        print("No se borraron ni se crearon cuentas.")
+        return
+
     try:
         existe = base.uno("SELECT COUNT(*) AS n FROM usuarios")
     except Exception:
         existe = None
     if existe and existe["n"] > 0 and not force:
         print("La base ya tiene datos. Usá `python seed.py --force` para borrar y recrear todo.")
+        return
+    esquema_existente = existe is not None
+    if production and esquema_existente and not force:
+        counts = cargar_catalogos(base)
+        base.script("""
+            CREATE TABLE IF NOT EXISTS email_verifications (
+                email VARCHAR(320) PRIMARY KEY,
+                nombre VARCHAR(120) NOT NULL,
+                password_hash VARCHAR(255) NOT NULL,
+                code_hash CHAR(64) NOT NULL,
+                expires_at BIGINT NOT NULL,
+                attempts SMALLINT NOT NULL DEFAULT 0,
+                last_sent_at BIGINT NOT NULL
+            )
+        """)
+        crear_admin(base)
+        base.cerrar()
+        print(f"Catálogos listos: {counts['cultivos']} cultivos, {counts['enfermedades']} enfermedades.")
+        print("Cuenta de administrador creada sin borrar las tablas existentes.")
         return
     base.script(open(dbm.esquema_path(), encoding="utf-8").read())
     print("✔ Tablas creadas")
@@ -187,17 +290,7 @@ def main():
     print(f"✔ {len(CULTIVOS)} cultivos y {len(ENFERMEDADES)} enfermedades")
 
     if production:
-        nombre = input("Nombre del administrador: ").strip()
-        email = input("Correo del administrador: ").strip().lower()
-        clave = getpass("Contraseña (8+ caracteres, letras y números): ")
-        confirmacion = getpass("Repetí la contraseña: ")
-        if len(nombre) < 3 or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
-            raise SystemExit("Nombre o correo inválidos. Volvé a ejecutar python seed.py --production.")
-        if (len(clave) < 8 or not re.search(r"\d", clave) or not re.search(r"[A-Za-z]", clave)
-                or clave != confirmacion):
-            raise SystemExit("Contraseña inválida o distinta. Volvé a ejecutar python seed.py --production.")
-        base.ejecutar("INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?,?,?, 'admin')",
-                      (nombre, email, generate_password_hash(clave)))
+        crear_admin(base)
         base.cerrar()
         print("✔ Base inicializada. Cuenta de administrador creada.")
         return

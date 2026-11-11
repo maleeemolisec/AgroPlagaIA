@@ -5,12 +5,19 @@ Backend Flask. Estructura:
   2. Autenticación y roles             5. Análisis con IA (CRUD)
   3. Dashboard y API                   6. Informes y administración
 """
+import hashlib
+import hmac
 import json
 import os
 import re
 import secrets
+import smtplib
+import ssl
+import threading
+import time
 import uuid
 from datetime import datetime
+from email.message import EmailMessage
 from functools import wraps
 
 from authlib.integrations.base_client.errors import OAuthError
@@ -53,6 +60,11 @@ app.config["GOOGLE_CLIENT_SECRET"] = os.environ.get("GOOGLE_CLIENT_SECRET", "").
 app.config["GOOGLE_REDIRECT_URI"] = os.environ.get("GOOGLE_REDIRECT_URI", "").strip()
 app.config["GOOGLE_OAUTH_ENABLED"] = bool(
     app.config["GOOGLE_CLIENT_ID"] and app.config["GOOGLE_CLIENT_SECRET"])
+app.config["SMTP_HOST"] = os.environ.get("SMTP_HOST", "smtp.gmail.com").strip()
+app.config["SMTP_PORT"] = int(os.environ.get("SMTP_PORT", "587"))
+app.config["SMTP_USERNAME"] = os.environ.get("SMTP_USERNAME", "").strip()
+app.config["SMTP_PASSWORD"] = os.environ.get("SMTP_PASSWORD", "").strip()
+app.config["SMTP_FROM"] = os.environ.get("SMTP_FROM", app.config["SMTP_USERNAME"]).strip()
 oauth = OAuth(app)
 google_oauth = oauth.register(
     name="google",
@@ -64,6 +76,11 @@ google_oauth = oauth.register(
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+CODIGO_EMAIL_TTL = 10 * 60
+CODIGO_EMAIL_REENVIO = 60
+CODIGO_EMAIL_INTENTOS = 5
+_verification_schema_ready = False
+_verification_schema_lock = threading.Lock()
 
 
 # ==========================================================================
@@ -187,6 +204,106 @@ def puede_editar_campo(campo):
     return g.user["rol"] == "admin" or campo["usuario_id"] == g.user["id"]
 
 
+def asegurar_tabla_verificaciones():
+    global _verification_schema_ready
+    if _verification_schema_ready:
+        return
+    with _verification_schema_lock:
+        if not _verification_schema_ready:
+            db().script("""
+                CREATE TABLE IF NOT EXISTS email_verifications (
+                    email VARCHAR(320) PRIMARY KEY,
+                    nombre VARCHAR(120) NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL,
+                    code_hash CHAR(64) NOT NULL,
+                    expires_at BIGINT NOT NULL,
+                    attempts SMALLINT NOT NULL DEFAULT 0,
+                    last_sent_at BIGINT NOT NULL
+                )
+            """)
+            _verification_schema_ready = True
+
+
+def _hash_codigo(email, codigo):
+    mensaje = f"{email}:{codigo}".encode("utf-8")
+    return hmac.new(app.config["SECRET_KEY"].encode("utf-8"), mensaje, hashlib.sha256).hexdigest()
+
+
+def enviar_codigo_verificacion(email, nombre, codigo):
+    usuario = app.config["SMTP_USERNAME"]
+    clave = app.config["SMTP_PASSWORD"]
+    if not usuario or not clave or not app.config["SMTP_FROM"]:
+        raise RuntimeError("Falta configurar el envío de correo SMTP.")
+
+    mensaje = EmailMessage()
+    mensaje["Subject"] = "Código para verificar tu cuenta de AgroPlaga IA"
+    mensaje["From"] = app.config["SMTP_FROM"]
+    mensaje["To"] = email
+    mensaje.set_content(
+        f"Hola {nombre},\n\n"
+        f"Tu código de verificación de AgroPlaga IA es: {codigo}\n\n"
+        "Vence en 10 minutos. Si no solicitaste crear esta cuenta, puedes ignorar este mensaje."
+    )
+
+    if app.config["SMTP_PORT"] == 465:
+        with smtplib.SMTP_SSL(
+                app.config["SMTP_HOST"], app.config["SMTP_PORT"], timeout=20,
+                context=ssl.create_default_context()) as servidor:
+            servidor.login(usuario, clave)
+            servidor.send_message(mensaje)
+    else:
+        with smtplib.SMTP(app.config["SMTP_HOST"], app.config["SMTP_PORT"], timeout=20) as servidor:
+            servidor.ehlo()
+            servidor.starttls(context=ssl.create_default_context())
+            servidor.ehlo()
+            servidor.login(usuario, clave)
+            servidor.send_message(mensaje)
+
+
+def _emitir_codigo_verificacion(email, nombre=None, password_hash=None, permitir_reenvio=False):
+    asegurar_tabla_verificaciones()
+    pendiente = db().uno("SELECT * FROM email_verifications WHERE email = ?", (email,))
+    ahora = int(time.time())
+    if pendiente and ahora - pendiente["last_sent_at"] < CODIGO_EMAIL_REENVIO:
+        return False
+    if pendiente and not permitir_reenvio:
+        return False
+
+    codigo = f"{secrets.randbelow(1_000_000):06d}"
+    if pendiente:
+        nombre = pendiente["nombre"]
+        password_hash = pendiente["password_hash"]
+    if not nombre or not password_hash:
+        return False
+    db().ejecutar("DELETE FROM email_verifications WHERE email = ?", (email,))
+    db().ejecutar(
+        "INSERT INTO email_verifications "
+        "(email, nombre, password_hash, code_hash, expires_at, attempts, last_sent_at) "
+        "VALUES (?, ?, ?, ?, ?, 0, ?)",
+        (email, nombre, password_hash, _hash_codigo(email, codigo),
+         ahora + CODIGO_EMAIL_TTL, ahora),
+        devolver_id=False,
+    )
+    try:
+        enviar_codigo_verificacion(email, nombre, codigo)
+    except RuntimeError as error:
+        app.logger.warning("No se pudo enviar el código de verificación: %s", error)
+        db().ejecutar("DELETE FROM email_verifications WHERE email = ?", (email,))
+        raise
+    except (OSError, smtplib.SMTPException):
+        app.logger.exception("No se pudo enviar el código de verificación por correo.")
+        db().ejecutar("DELETE FROM email_verifications WHERE email = ?", (email,))
+        raise
+    return True
+
+
+def _iniciar_sesion(uid, destino=None):
+    session.clear()
+    session["uid"] = uid
+    session["csrf"] = secrets.token_hex(16)
+    return redirect(destino or url_for("dashboard"))
+
+
 @app.errorhandler(400)
 def e400(e):
     return render_template("error.html", codigo=400, mensaje=getattr(e, "description", "Solicitud inválida")), 400
@@ -239,12 +356,100 @@ def registro():
             for e in errores:
                 flash(e, "danger")
             return render_template("registro.html", nombre=nombre, email=email)
-        # Los registros públicos siempre son "productor"; el admin puede cambiar el rol.
-        db().ejecutar("INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?,?,?, 'productor')",
-                      (nombre, email, generate_password_hash(clave)))
-        flash("Cuenta creada. Ya podés iniciar sesión.", "success")
-        return redirect(url_for("login"))
+        asegurar_tabla_verificaciones()
+        pendiente = db().uno("SELECT * FROM email_verifications WHERE email = ?", (email,))
+        if pendiente and int(time.time()) - pendiente["last_sent_at"] < CODIGO_EMAIL_REENVIO:
+            flash("Ya enviamos un código a ese correo. Revisá tu bandeja y el correo no deseado.", "info")
+            return redirect(url_for("verificar_email", email=email))
+        if pendiente:
+            db().ejecutar("DELETE FROM email_verifications WHERE email = ?", (email,))
+        try:
+            enviado = _emitir_codigo_verificacion(
+                email, nombre=nombre, password_hash=generate_password_hash(clave))
+        except (OSError, smtplib.SMTPException, RuntimeError):
+            flash("No se pudo enviar el correo. Revisá la configuración SMTP de Gmail e intentá de nuevo.", "danger")
+            return render_template("registro.html", nombre=nombre, email=email)
+        if enviado:
+            flash("Te enviamos un código de 6 dígitos. Ingresalo para verificar tu correo y activar la cuenta.", "success")
+        else:
+            flash("Ya enviamos un código a ese correo. Revisá tu bandeja y esperá un minuto antes de pedir otro.", "info")
+        return redirect(url_for("verificar_email", email=email))
     return render_template("registro.html", nombre="", email="")
+
+
+@app.route("/registro/verificar", methods=["GET", "POST"])
+def verificar_email():
+    asegurar_tabla_verificaciones()
+    email = request.values.get("email", "").strip().lower()
+    if not EMAIL_RE.match(email):
+        flash("El enlace de verificación no es válido. Comenzá el registro nuevamente.", "danger")
+        return redirect(url_for("registro"))
+
+    if request.method == "POST":
+        codigo = request.form.get("codigo", "").strip()
+        pendiente = db().uno("SELECT * FROM email_verifications WHERE email = ?", (email,))
+        if not pendiente:
+            flash("No hay una verificación pendiente para ese correo. Comenzá el registro nuevamente.", "danger")
+            return redirect(url_for("registro"))
+        ahora = int(time.time())
+        if pendiente["expires_at"] <= ahora:
+            db().ejecutar("DELETE FROM email_verifications WHERE email = ?", (email,))
+            flash("El código venció. Volvé a completar el registro para recibir otro.", "warning")
+            return redirect(url_for("registro"))
+        if pendiente["attempts"] >= CODIGO_EMAIL_INTENTOS:
+            db().ejecutar("DELETE FROM email_verifications WHERE email = ?", (email,))
+            flash("Se agotaron los intentos. Volvé a completar el registro para recibir otro código.", "danger")
+            return redirect(url_for("registro"))
+        if not re.fullmatch(r"\d{6}", codigo) or not hmac.compare_digest(
+                pendiente["code_hash"], _hash_codigo(email, codigo)):
+            intentos = pendiente["attempts"] + 1
+            db().ejecutar("UPDATE email_verifications SET attempts = ? WHERE email = ?", (intentos, email))
+            if intentos >= CODIGO_EMAIL_INTENTOS:
+                db().ejecutar("DELETE FROM email_verifications WHERE email = ?", (email,))
+                flash("Se agotaron los intentos. Volvé a completar el registro para recibir otro código.", "danger")
+                return redirect(url_for("registro"))
+            flash(f"El código no es correcto. Te quedan {CODIGO_EMAIL_INTENTOS - intentos} intentos.", "danger")
+            return render_template("verificar_email.html", email=email)
+
+        if db().uno("SELECT id FROM usuarios WHERE email = ?", (email,)):
+            db().ejecutar("DELETE FROM email_verifications WHERE email = ?", (email,))
+            flash("Ese correo ya tiene una cuenta. Iniciá sesión.", "info")
+            return redirect(url_for("login"))
+        uid = db().ejecutar(
+            "INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?, ?, ?, 'productor')",
+            (pendiente["nombre"], email, pendiente["password_hash"]),
+        )
+        db().ejecutar("DELETE FROM email_verifications WHERE email = ?", (email,))
+        respuesta = _iniciar_sesion(uid)
+        flash("Correo verificado. Tu cuenta está lista.", "success")
+        return respuesta
+
+    if not db().uno("SELECT email FROM email_verifications WHERE email = ?", (email,)):
+        flash("No hay una verificación pendiente para ese correo. Comenzá el registro nuevamente.", "warning")
+        return redirect(url_for("registro"))
+    return render_template("verificar_email.html", email=email)
+
+
+@app.route("/registro/reenviar", methods=["POST"])
+def reenviar_codigo_email():
+    email = request.form.get("email", "").strip().lower()
+    if not EMAIL_RE.match(email):
+        flash("El correo electrónico no es válido.", "danger")
+        return redirect(url_for("registro"))
+    asegurar_tabla_verificaciones()
+    if not db().uno("SELECT email FROM email_verifications WHERE email = ?", (email,)):
+        flash("No hay una verificación pendiente para ese correo. Comenzá el registro nuevamente.", "warning")
+        return redirect(url_for("registro"))
+    try:
+        enviado = _emitir_codigo_verificacion(email, permitir_reenvio=True)
+    except (OSError, smtplib.SMTPException, RuntimeError):
+        flash("No se pudo enviar el correo. Intentá nuevamente más tarde.", "danger")
+        return redirect(url_for("verificar_email", email=email))
+    if enviado:
+        flash("Te enviamos otro código de verificación.", "success")
+    else:
+        flash("Esperá un minuto antes de pedir otro código.", "warning")
+    return redirect(url_for("verificar_email", email=email))
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -254,13 +459,10 @@ def login():
         clave = request.form.get("password", "")
         u = db().uno("SELECT * FROM usuarios WHERE email = ?", (email,))
         if u and u["activo"] and check_password_hash(u["password_hash"], clave):
-            session.clear()
-            session["uid"] = u["id"]
-            session["csrf"] = secrets.token_hex(16)
             destino = request.args.get("next", "")
             if not destino.startswith("/") or destino.startswith("//"):
                 destino = url_for("dashboard")
-            return redirect(destino)
+            return _iniciar_sesion(u["id"], destino)
         flash("Correo o contraseña incorrectos.", "danger")
     return render_template("login.html")
 

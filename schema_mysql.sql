@@ -4,6 +4,7 @@ DROP TABLE IF EXISTS informes;
 DROP TABLE IF EXISTS analisis;
 DROP TABLE IF EXISTS lotes;
 DROP TABLE IF EXISTS campos;
+DROP TABLE IF EXISTS email_verifications;
 DROP TABLE IF EXISTS enfermedades;
 DROP TABLE IF EXISTS cultivos;
 DROP TABLE IF EXISTS usuarios;
@@ -17,6 +18,16 @@ CREATE TABLE usuarios (
     rol           ENUM('admin','tecnico','productor') NOT NULL DEFAULT 'productor',
     activo        TINYINT(1) NOT NULL DEFAULT 1,
     creado        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE email_verifications (
+    email         VARCHAR(320) PRIMARY KEY,
+    nombre        VARCHAR(120) NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    code_hash     CHAR(64) NOT NULL,
+    expires_at    BIGINT NOT NULL,
+    attempts      SMALLINT NOT NULL DEFAULT 0,
+    last_sent_at  BIGINT NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE cultivos (

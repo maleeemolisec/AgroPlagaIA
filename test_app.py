@@ -40,9 +40,11 @@ pg_db = A.dbm.DB.__new__(A.dbm.DB)
 pg_db.postgres, pg_db.mysql = True, False
 
 class CursorPostgresPrueba:
+    fetches = 0
     def execute(self, sql, params):
         self.sql, self.params = sql, params
     def fetchone(self):
+        self.fetches += 1
         return {"id": 27}
     def close(self):
         pass
@@ -56,6 +58,13 @@ pg_db.conn = ConexionPostgresPrueba()
 id_prueba = pg_db.ejecutar("INSERT INTO usuarios (nombre) VALUES (?)", ("Prueba",))
 check("PostgreSQL adapta parámetros y devuelve el ID insertado",
       id_prueba == 27 and pg_db.conn.ultimo_cursor.sql.endswith("VALUES (%s) RETURNING id"))
+resultado_borrado = pg_db.ejecutar("DELETE FROM usuarios WHERE id = ?", (27,))
+check("PostgreSQL ejecuta DELETE sin solicitar lastrowid",
+      resultado_borrado is None and pg_db.conn.ultimo_cursor.sql.endswith("WHERE id = %s"))
+resultado_sin_id = pg_db.ejecutar(
+    "INSERT INTO email_verifications (email) VALUES (?)", ("prueba@test.com",), devolver_id=False)
+check("PostgreSQL inserta verificaciones sin exigir una columna ID",
+      resultado_sin_id is None and "RETURNING id" not in pg_db.conn.ultimo_cursor.sql)
 A.dbm.DATABASE_URL = database_url_anterior
 url_anterior, argumentos_anteriores = A.dbm.DATABASE_URL, sys.argv[:]
 A.dbm.DATABASE_URL = "sqlite:///" + os.path.join(tmp, "production-init.db")
@@ -68,17 +77,52 @@ usuario_admin = base_produccion.uno("SELECT rol FROM usuarios WHERE email = ?", 
 cuentas_demo = base_produccion.uno("SELECT COUNT(*) AS n FROM usuarios")["n"]
 cliente_produccion = A.app.test_client()
 token_registro = csrf(cliente_produccion, "/registro")
-respuesta_registro = cliente_produccion.post("/registro", data={
-    "_csrf": token_registro, "nombre": "Cuenta Nueva", "email": "nueva@test.com",
-    "password": "NuevaClave123", "password2": "NuevaClave123",
-}, follow_redirects=True)
+codigos_enviados = []
+with patch.object(A, "enviar_codigo_verificacion",
+                  side_effect=lambda email, nombre, codigo: codigos_enviados.append((email, codigo))):
+    respuesta_registro = cliente_produccion.post("/registro", data={
+        "_csrf": token_registro, "nombre": "Cuenta Nueva", "email": "nueva@test.com",
+        "password": "NuevaClave123", "password2": "NuevaClave123",
+    })
+cuenta_antes_verificar = base_produccion.uno("SELECT id FROM usuarios WHERE email = ?", ("nueva@test.com",))
+check("Registro manda código y no activa la cuenta antes de verificar",
+      respuesta_registro.status_code == 302 and "verificar" in respuesta_registro.headers["Location"]
+      and codigos_enviados and cuenta_antes_verificar is None)
+token_verificacion = csrf(cliente_produccion, "/registro/verificar?email=nueva%40test.com")
+codigo_incorrecto = "999999" if codigos_enviados[0][1] != "999999" else "888888"
+respuesta_codigo_incorrecto = cliente_produccion.post("/registro/verificar?email=nueva%40test.com", data={
+    "_csrf": token_verificacion, "codigo": codigo_incorrecto,
+})
+cuenta_tras_codigo_invalido = base_produccion.uno(
+    "SELECT id FROM usuarios WHERE email = ?", ("nueva@test.com",))
+check("Código incorrecto no crea cuenta",
+      cuenta_tras_codigo_invalido is None and "no es correcto" in
+      respuesta_codigo_incorrecto.get_data(as_text=True))
+token_verificacion = csrf(cliente_produccion, "/registro/verificar?email=nueva%40test.com")
+respuesta_verificada = cliente_produccion.post(
+    "/registro/verificar?email=nueva%40test.com",
+    data={"_csrf": token_verificacion, "codigo": codigos_enviados[0][1]},
+    follow_redirects=True,
+)
 cuenta_creada = base_produccion.uno("SELECT id FROM usuarios WHERE email = ?", ("nueva@test.com",))
+with cliente_produccion.session_transaction() as sesion:
+    sesion_iniciada = bool(cuenta_creada and sesion.get("uid") == cuenta_creada["id"])
+check("Código correcto crea cuenta y deja al usuario conectado",
+      cuenta_creada is not None and sesion_iniciada and respuesta_verificada.status_code == 200)
+sys.argv = ["seed.py", "--catalogs-only"]
+seed.main()
+conteo_catalogos = base_produccion.uno(
+    "SELECT (SELECT COUNT(*) FROM cultivos) AS cultivos, "
+    "(SELECT COUNT(*) FROM enfermedades) AS enfermedades"
+)
+conteo_usuarios = base_produccion.uno("SELECT COUNT(*) AS n FROM usuarios")["n"]
+check("Catálogos se pueden completar sin borrar usuarios ni duplicar datos",
+      conteo_catalogos["cultivos"] == 8 and conteo_catalogos["enfermedades"] == 19
+      and conteo_usuarios == 2)
 base_produccion.cerrar()
 A.dbm.DATABASE_URL, sys.argv = url_anterior, argumentos_anteriores
 check("Inicialización de producción crea catálogos y admin sin cuentas demo",
       usuario_admin is not None and usuario_admin["rol"] == "admin" and cuentas_demo == 1)
-check("Registro funciona con la base inicializada para producción",
-      cuenta_creada is not None and "Cuenta creada" in respuesta_registro.get_data(as_text=True))
 check("Panel sin sesión redirige a login", c.get("/dashboard").status_code == 302)
 login_html = c.get("/login").data
 check("Formulario de login ofrece Google", b"Continuar con Google" in login_html)
@@ -123,9 +167,24 @@ print("== Registro")
 c2 = A.app.test_client(); t = csrf(c2, "/registro")
 r = c2.post("/registro", data={"_csrf": t, "nombre": "Ana", "email": "mala", "password": "123", "password2": "x"})
 check("Registro con datos inválidos muestra errores", "no es válido" in r.get_data(as_text=True))
-r = c2.post("/registro", data={"_csrf": t, "nombre": "Ana Nueva", "email": "ana@test.com", "password": "Clave1234", "password2": "Clave1234"}, follow_redirects=True)
-check("Registro válido crea cuenta", "Cuenta creada" in r.get_data(as_text=True))
-check("Nuevo usuario queda como productor", A.dbm.DB().uno("SELECT rol FROM usuarios WHERE email='ana@test.com'")["rol"] == "productor")
+codigos_registro = []
+with patch.object(A, "enviar_codigo_verificacion",
+                  side_effect=lambda email, nombre, codigo: codigos_registro.append(codigo)):
+    r = c2.post("/registro", data={
+        "_csrf": t, "nombre": "Ana Nueva", "email": "ana@test.com",
+        "password": "Clave1234", "password2": "Clave1234",
+    })
+t_verificacion = csrf(c2, "/registro/verificar?email=ana%40test.com")
+r = c2.post("/registro/verificar?email=ana%40test.com",
+            data={"_csrf": t_verificacion, "codigo": codigos_registro[0]}, follow_redirects=True)
+check("Registro válido crea cuenta al verificar el código",
+      "Correo verificado" in r.get_data(as_text=True))
+usuario_registrado = A.dbm.DB().uno("SELECT id, rol FROM usuarios WHERE email='ana@test.com'")
+with c2.session_transaction() as sesion_registro:
+    check("Registro verificado inicia sesión automáticamente",
+          usuario_registrado is not None and sesion_registro.get("uid") == usuario_registrado["id"])
+check("Nuevo usuario queda como productor",
+      usuario_registrado is not None and usuario_registrado["rol"] == "productor")
 
 print("== CRUD campos y lotes")
 t = csrf(c, "/campos/nuevo")

@@ -67,14 +67,17 @@ class DB:
         filas = self.todos(sql, params)
         return filas[0] if filas else None
 
-    def ejecutar(self, sql, params=()):
-        """INSERT / UPDATE / DELETE. Devuelve el id insertado."""
+    def ejecutar(self, sql, params=(), devolver_id=True):
+        """Ejecuta INSERT / UPDATE / DELETE; puede omitir la recuperación del id."""
         cur = self.conn.cursor()
         es_insert = sql.lstrip().upper().startswith("INSERT")
-        if self.postgres and es_insert and "RETURNING" not in sql.upper():
+        if self.postgres and es_insert and devolver_id and "RETURNING" not in sql.upper():
             sql = sql.rstrip().rstrip(";") + " RETURNING id"
         cur.execute(self._sql(sql), params)
-        nuevo_id = cur.fetchone()["id"] if self.postgres and es_insert else cur.lastrowid
+        if self.postgres:
+            nuevo_id = cur.fetchone()["id"] if es_insert and devolver_id else None
+        else:
+            nuevo_id = cur.lastrowid if es_insert and devolver_id else None
         cur.close()
         if not self.mysql and not self.postgres:
             self.conn.commit()

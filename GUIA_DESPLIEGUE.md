@@ -56,6 +56,19 @@ Vercel ejecuta la aplicación en funciones y no conserva una base SQLite ni los 
 4. Vuelve a Vercel → **Deployments** y redepliega el último commit para que instale `psycopg` y lea `DATABASE_URL`.
 5. Prueba crear una cuenta en el sitio. Las cuentas que existían solo en tu SQLite local no se copian: vuelve a registrarlas en el sitio. Para iniciar sesión como administrador, usa el correo y la contraseña que ingresaste en el paso 3.
 
+### Completar catálogos faltantes en Neon
+Si el selector de cultivos aparece vacío, agrega la cadena `DATABASE_URL` de Neon en `.env` local y ejecuta:
+```powershell
+python seed.py --catalogs-only
+```
+Este comando inserta únicamente cultivos o enfermedades faltantes; no borra cuentas ni datos existentes.
+
+### Verificación de correo por Gmail
+1. En tu cuenta de Google activa la verificación en dos pasos y crea una contraseña de aplicación en [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords). Usa esa contraseña de aplicación, no la contraseña normal de Gmail.
+2. En Vercel → **Settings** → **Environment Variables**, agrega `SMTP_USERNAME` con tu dirección Gmail y `SMTP_PASSWORD` con la contraseña de aplicación. Agrega también `SMTP_FROM` con la misma dirección. Si no defines `SMTP_HOST` y `SMTP_PORT`, se usan `smtp.gmail.com` y `587`.
+3. En Vercel redepliega el proyecto para aplicar las variables.
+4. El registro envía un código de 6 dígitos, válido por 10 minutos. Luego de validarlo, se crea la cuenta y la sesión queda iniciada. No publiques la contraseña de aplicación ni la guardes en Git.
+
 El almacenamiento de fotos también debe migrarse a almacenamiento persistente externo para conservarlas en Vercel.
 
 ### Habilitar el inicio de sesión con Google
