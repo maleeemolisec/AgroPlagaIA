@@ -3,6 +3,7 @@
 Uso:
     python seed.py            # crea todo (si la base ya tiene datos, avisa y no toca nada)
     python seed.py --force    # BORRA todo y vuelve a crear
+    python seed.py --production  # crea catálogos y pide credenciales para un admin inicial
 
 Las fotos de prueba se generan con Pillow (hojas dibujadas), no son fotos reales.
 Los análisis de prueba están marcados con motor = 'prueba'.
@@ -10,8 +11,10 @@ Los análisis de prueba están marcados con motor = 'prueba'.
 import json
 import os
 import random
+import re
 import sys
 from datetime import datetime, timedelta
+from getpass import getpass
 
 from PIL import Image, ImageDraw, ImageFilter
 from werkzeug.security import generate_password_hash
@@ -160,6 +163,7 @@ def dibujar_hoja(ruta, estado, enfermedad, semilla):
 
 def main():
     force = "--force" in sys.argv
+    production = "--production" in sys.argv
     base = dbm.DB()
     try:
         existe = base.uno("SELECT COUNT(*) AS n FROM usuarios")
@@ -181,6 +185,22 @@ def main():
             "INSERT INTO enfermedades (cultivo_id, nombre, nombre_cientifico, agente, sintomas, recomendacion) "
             "VALUES (?,?,?,?,?,?)", (ids_c.get(cult), nombre, cient, agente, sint, rec))
     print(f"✔ {len(CULTIVOS)} cultivos y {len(ENFERMEDADES)} enfermedades")
+
+    if production:
+        nombre = input("Nombre del administrador: ").strip()
+        email = input("Correo del administrador: ").strip().lower()
+        clave = getpass("Contraseña (8+ caracteres, letras y números): ")
+        confirmacion = getpass("Repetí la contraseña: ")
+        if len(nombre) < 3 or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+            raise SystemExit("Nombre o correo inválidos. Volvé a ejecutar python seed.py --production.")
+        if (len(clave) < 8 or not re.search(r"\d", clave) or not re.search(r"[A-Za-z]", clave)
+                or clave != confirmacion):
+            raise SystemExit("Contraseña inválida o distinta. Volvé a ejecutar python seed.py --production.")
+        base.ejecutar("INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?,?,?, 'admin')",
+                      (nombre, email, generate_password_hash(clave)))
+        base.cerrar()
+        print("✔ Base inicializada. Cuenta de administrador creada.")
+        return
 
     usuarios = [("Administrador AgroPlaga", "admin@agroplaga.com", "Admin2026", "admin"),
                 ("Técnica Laura Gómez", "tecnico@agroplaga.com", "Tecnico2026", "tecnico"),

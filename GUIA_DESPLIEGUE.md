@@ -40,6 +40,24 @@ python seed.py && python app.py                 # http://127.0.0.1:5000
 ```
 Usuarios de prueba: `admin@agroplaga.com / Admin2026`, `tecnico@agroplaga.com / Tecnico2026`, `productor@agroplaga.com / Productor2026`.
 
+## Usar el proyecto en Vercel con PostgreSQL
+Vercel ejecuta la aplicación en funciones y no conserva una base SQLite ni los archivos subidos al disco local. Para que el registro y el inicio de sesión persistan, conecta una base PostgreSQL (por ejemplo, Neon):
+
+1. Crea una base PostgreSQL en Neon y copia su cadena de conexión. Debe comenzar con `postgresql://` y normalmente incluye `sslmode=require`. No la publiques ni la agregues a Git.
+2. En Vercel, abre tu proyecto → **Settings** → **Environment Variables**. Agrega `DATABASE_URL` con la cadena de conexión y selecciona al menos **Production**. Guarda.
+3. En PowerShell local, desde la carpeta del proyecto, abre `.env` y agrega temporalmente la cadena de conexión como `DATABASE_URL=...`. El archivo `.env` está excluido de Git:
+   ```powershell
+   cd "C:\Users\Usuario\Downloads\AgroPlagaIA\agroplaga"
+   pip install -r requirements.txt
+   notepad .env
+   python seed.py --production
+   ```
+   Pega la URL de Neon en `.env` en una línea `DATABASE_URL=...`, guarda el archivo y ejecuta el comando. Te pedirá nombre, correo y contraseña para crear el primer administrador; la contraseña no se muestra al escribirla. Este modo crea las tablas y catálogos sin las cuentas públicas de demostración. Al terminar, quita la línea `DATABASE_URL` de `.env` para que tu copia local vuelva a usar SQLite.
+4. Vuelve a Vercel → **Deployments** y redepliega el último commit para que instale `psycopg` y lea `DATABASE_URL`.
+5. Prueba crear una cuenta en el sitio. Las cuentas que existían solo en tu SQLite local no se copian: vuelve a registrarlas en el sitio. Para iniciar sesión como administrador, usa el correo y la contraseña que ingresaste en el paso 3.
+
+El almacenamiento de fotos también debe migrarse a almacenamiento persistente externo para conservarlas en Vercel.
+
 ### Habilitar el inicio de sesión con Google
 1. En [Google Cloud Console](https://console.cloud.google.com/), creá o seleccioná un proyecto y configurá la pantalla de consentimiento de OAuth.
 2. Creá un **ID de cliente de OAuth** de tipo **Aplicación web**.

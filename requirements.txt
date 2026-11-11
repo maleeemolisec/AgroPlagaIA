@@ -4,5 +4,7 @@ requests>=2.31
 Pillow>=10.0
 # Solo si usás MySQL (PythonAnywhere, hosting con MySQL):
 PyMySQL>=1.1
+# Para PostgreSQL (por ejemplo, Neon en Vercel):
+psycopg[binary]>=3.2
 # Para producción en servidores propios (no hace falta en PythonAnywhere):
 # gunicorn>=21

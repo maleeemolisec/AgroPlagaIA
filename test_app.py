@@ -32,6 +32,53 @@ def foto(color=(40, 150, 40), manchas=True):
 print("== Acceso y roles")
 c = A.app.test_client()
 A.app.config["GOOGLE_OAUTH_ENABLED"] = False
+database_url_anterior = A.dbm.DATABASE_URL
+A.dbm.DATABASE_URL = "postgresql://test:test@localhost/test?sslmode=require"
+check("PostgreSQL selecciona el esquema correcto",
+      A.dbm.es_postgres() and A.dbm.esquema_path().endswith("schema_postgres.sql"))
+pg_db = A.dbm.DB.__new__(A.dbm.DB)
+pg_db.postgres, pg_db.mysql = True, False
+
+class CursorPostgresPrueba:
+    def execute(self, sql, params):
+        self.sql, self.params = sql, params
+    def fetchone(self):
+        return {"id": 27}
+    def close(self):
+        pass
+
+class ConexionPostgresPrueba:
+    def cursor(self):
+        self.ultimo_cursor = CursorPostgresPrueba()
+        return self.ultimo_cursor
+
+pg_db.conn = ConexionPostgresPrueba()
+id_prueba = pg_db.ejecutar("INSERT INTO usuarios (nombre) VALUES (?)", ("Prueba",))
+check("PostgreSQL adapta parámetros y devuelve el ID insertado",
+      id_prueba == 27 and pg_db.conn.ultimo_cursor.sql.endswith("VALUES (%s) RETURNING id"))
+A.dbm.DATABASE_URL = database_url_anterior
+url_anterior, argumentos_anteriores = A.dbm.DATABASE_URL, sys.argv[:]
+A.dbm.DATABASE_URL = "sqlite:///" + os.path.join(tmp, "production-init.db")
+sys.argv = ["seed.py", "--production"]
+with patch("builtins.input", side_effect=["Administrador Prueba", "admin-prueba@test.com"]), \
+        patch("seed.getpass", side_effect=["AdminSeguro2026", "AdminSeguro2026"]):
+    seed.main()
+base_produccion = A.dbm.DB()
+usuario_admin = base_produccion.uno("SELECT rol FROM usuarios WHERE email = ?", ("admin-prueba@test.com",))
+cuentas_demo = base_produccion.uno("SELECT COUNT(*) AS n FROM usuarios")["n"]
+cliente_produccion = A.app.test_client()
+token_registro = csrf(cliente_produccion, "/registro")
+respuesta_registro = cliente_produccion.post("/registro", data={
+    "_csrf": token_registro, "nombre": "Cuenta Nueva", "email": "nueva@test.com",
+    "password": "NuevaClave123", "password2": "NuevaClave123",
+}, follow_redirects=True)
+cuenta_creada = base_produccion.uno("SELECT id FROM usuarios WHERE email = ?", ("nueva@test.com",))
+base_produccion.cerrar()
+A.dbm.DATABASE_URL, sys.argv = url_anterior, argumentos_anteriores
+check("Inicialización de producción crea catálogos y admin sin cuentas demo",
+      usuario_admin is not None and usuario_admin["rol"] == "admin" and cuentas_demo == 1)
+check("Registro funciona con la base inicializada para producción",
+      cuenta_creada is not None and "Cuenta creada" in respuesta_registro.get_data(as_text=True))
 check("Panel sin sesión redirige a login", c.get("/dashboard").status_code == 302)
 login_html = c.get("/login").data
 check("Formulario de login ofrece Google", b"Continuar con Google" in login_html)

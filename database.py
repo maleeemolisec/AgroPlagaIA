@@ -22,11 +22,21 @@ def es_mysql():
     return DATABASE_URL.startswith("mysql")
 
 
+def es_postgres():
+    return DATABASE_URL.startswith(("postgres://", "postgresql://"))
+
+
 class DB:
-    """Pequeño envoltorio que unifica sqlite3 y pymysql."""
+    """Pequeño envoltorio que unifica SQLite, MySQL y PostgreSQL."""
 
     def __init__(self):
-        if es_mysql():
+        if es_postgres():
+            import psycopg
+            from psycopg.rows import dict_row
+            self.conn = psycopg.connect(DATABASE_URL, row_factory=dict_row, autocommit=True)
+            self.postgres = True
+            self.mysql = False
+        elif es_mysql():
             import pymysql  # se instala solo si se usa MySQL
             u = urlparse(DATABASE_URL)
             self.conn = pymysql.connect(
@@ -34,15 +44,17 @@ class DB:
                 database=u.path.lstrip("/"), port=u.port or 3306, charset="utf8mb4",
                 cursorclass=pymysql.cursors.DictCursor, autocommit=True)
             self.mysql = True
+            self.postgres = False
         else:
             path = DATABASE_URL.replace("sqlite:///", "", 1)
             self.conn = sqlite3.connect(path)
             self.conn.row_factory = sqlite3.Row
             self.conn.execute("PRAGMA foreign_keys = ON")
             self.mysql = False
+            self.postgres = False
 
     def _sql(self, sql):
-        return sql.replace("?", "%s") if self.mysql else sql
+        return sql.replace("?", "%s") if self.mysql or self.postgres else sql
 
     def todos(self, sql, params=()):
         cur = self.conn.cursor()
@@ -58,16 +70,19 @@ class DB:
     def ejecutar(self, sql, params=()):
         """INSERT / UPDATE / DELETE. Devuelve el id insertado."""
         cur = self.conn.cursor()
+        es_insert = sql.lstrip().upper().startswith("INSERT")
+        if self.postgres and es_insert and "RETURNING" not in sql.upper():
+            sql = sql.rstrip().rstrip(";") + " RETURNING id"
         cur.execute(self._sql(sql), params)
-        nuevo_id = cur.lastrowid
+        nuevo_id = cur.fetchone()["id"] if self.postgres and es_insert else cur.lastrowid
         cur.close()
-        if not self.mysql:
+        if not self.mysql and not self.postgres:
             self.conn.commit()
         return nuevo_id
 
     def script(self, texto):
         """Ejecuta un script con varias sentencias (para crear el esquema)."""
-        if self.mysql:
+        if self.mysql or self.postgres:
             for sentencia in [s.strip() for s in texto.split(";") if s.strip()]:
                 cur = self.conn.cursor()
                 cur.execute(sentencia)
@@ -84,4 +99,8 @@ class DB:
 
 
 def esquema_path():
-    return os.path.join(BASE_DIR, "schema_mysql.sql" if es_mysql() else "schema.sql")
+    if es_postgres():
+        nombre = "schema_postgres.sql"
+    else:
+        nombre = "schema_mysql.sql" if es_mysql() else "schema.sql"
+    return os.path.join(BASE_DIR, nombre)
