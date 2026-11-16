@@ -1,10 +1,3 @@
-"""AgroPlaga IA - Detección inteligente de enfermedades en cultivos.
-
-Backend Flask. Estructura:
-  1. Configuración y utilidades        4. Campos y lotes (CRUD)
-  2. Autenticación y roles             5. Análisis con IA (CRUD)
-  3. Dashboard y API                   6. Informes y administración
-"""
 import hashlib
 import hmac
 import io
