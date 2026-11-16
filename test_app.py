@@ -39,6 +39,7 @@ check("PostgreSQL selecciona el esquema correcto",
       A.dbm.es_postgres() and A.dbm.esquema_path().endswith("schema_postgres.sql"))
 pg_db = A.dbm.DB.__new__(A.dbm.DB)
 pg_db.postgres, pg_db.mysql = True, False
+pg_db._db_error_types = (RuntimeError,)
 
 class CursorPostgresPrueba:
     fetches = 0
@@ -67,6 +68,39 @@ resultado_sin_id = pg_db.ejecutar(
 check("PostgreSQL inserta verificaciones sin exigir una columna ID",
       resultado_sin_id is None and "RETURNING id" not in pg_db.conn.ultimo_cursor.sql)
 A.dbm.DATABASE_URL = database_url_anterior
+url_antes_prueba_vercel = A.dbm.DATABASE_URL
+A.dbm.DATABASE_URL = "sqlite:///" + os.path.join(tmp, "no-persistente.db")
+with patch.dict(os.environ, {"VERCEL": "1"}):
+    try:
+        A.dbm.DB()
+        error_config_vercel = None
+    except A.dbm.DatabaseConfigurationError as error:
+        error_config_vercel = error
+check("Vercel rechaza SQLite y no usa una base efímera por error",
+      isinstance(error_config_vercel, A.dbm.DatabaseConfigurationError)
+      and "PostgreSQL" in str(error_config_vercel))
+A.dbm.DATABASE_URL = url_antes_prueba_vercel
+
+cliente_error_db = A.app.test_client()
+token_error_db = csrf(cliente_error_db)
+with patch.object(A.dbm, "DB", side_effect=A.dbm.DatabaseConfigurationError("Falta DATABASE_URL")):
+    respuesta_error_db = cliente_error_db.post("/login", data={
+        "_csrf": token_error_db, "email": "persona@test.com", "password": "Clave1234"
+    })
+check("Fallo de configuración de base se muestra como 503 y explica revisar DATABASE_URL",
+      respuesta_error_db.status_code == 503
+      and "DATABASE_URL" in respuesta_error_db.get_data(as_text=True)
+      and b"Internal Server Error" not in respuesta_error_db.data)
+cliente_error_consulta = A.app.test_client()
+token_error_consulta = csrf(cliente_error_consulta)
+with patch.object(A.dbm, "DB", side_effect=A.dbm.DatabaseOperationError("No existe la tabla usuarios")):
+    respuesta_error_consulta = cliente_error_consulta.post("/login", data={
+        "_csrf": token_error_consulta, "email": "persona@test.com", "password": "Clave1234"
+    })
+check("Fallo en consulta SQL se registra y muestra el aviso de base de datos",
+      respuesta_error_consulta.status_code == 503
+      and "DATABASE_URL" in respuesta_error_consulta.get_data(as_text=True))
+
 url_anterior, argumentos_anteriores = A.dbm.DATABASE_URL, sys.argv[:]
 A.dbm.DATABASE_URL = "sqlite:///" + os.path.join(tmp, "production-init.db")
 sys.argv = ["seed.py", "--production"]
@@ -168,6 +202,18 @@ print("== Registro")
 c2 = A.app.test_client(); t = csrf(c2, "/registro")
 r = c2.post("/registro", data={"_csrf": t, "nombre": "Ana", "email": "mala", "password": "123", "password2": "x"})
 check("Registro con datos inválidos muestra errores", "no es válido" in r.get_data(as_text=True))
+smtp_anterior = {k: A.app.config[k] for k in ("SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM")}
+A.app.config.update(SMTP_USERNAME="", SMTP_PASSWORD="", SMTP_FROM="")
+r = c2.post("/registro", data={
+    "_csrf": t, "nombre": "Sin SMTP", "email": "sin-smtp@test.com",
+    "password": "Clave1234", "password2": "Clave1234",
+})
+A.app.config.update(smtp_anterior)
+pendiente_sin_smtp = A.dbm.DB().uno(
+    "SELECT email FROM email_verifications WHERE email = ?", ("sin-smtp@test.com",))
+check("Registro sin SMTP muestra aviso y no deja una cuenta/verificación falsa",
+      r.status_code == 200 and "No se pudo enviar el correo" in r.get_data(as_text=True)
+      and pendiente_sin_smtp is None)
 codigos_registro = []
 with patch.object(A, "enviar_codigo_verificacion",
                   side_effect=lambda email, nombre, codigo: codigos_registro.append(codigo)):

@@ -43,8 +43,8 @@ Usuarios de prueba: `admin@agroplaga.com / Admin2026`, `tecnico@agroplaga.com / 
 ## Usar el proyecto en Vercel con PostgreSQL
 Vercel ejecuta la aplicación en funciones y no conserva una base SQLite ni los archivos subidos al disco local. Para que el registro y el inicio de sesión persistan, conecta una base PostgreSQL (por ejemplo, Neon):
 
-1. Crea una base PostgreSQL en Neon y copia su cadena de conexión. Debe comenzar con `postgresql://` y normalmente incluye `sslmode=require`. No la publiques ni la agregues a Git.
-2. En Vercel, abre tu proyecto → **Settings** → **Environment Variables**. Agrega `DATABASE_URL` con la cadena de conexión y selecciona al menos **Production**. Guarda.
+1. En Neon, abrí **Connect**, elegí la rama `production`, la base `neondb`, el rol que usa la app y dejá activado **Connection pooling**. Copiá la cadena completa: debe empezar con `postgresql://` y el host debe contener `-pooler`. No la publiques ni la agregues a Git.
+2. En Vercel, abre tu proyecto → **Settings** → **Environment Variables**. Crea o edita una única variable `DATABASE_URL`. En **Value** pega solo la cadena completa, no `DATABASE_URL=` ni otras variables en líneas separadas. Selecciona **Production** y guarda. La app en Vercel requiere PostgreSQL; no usa SQLite local como alternativa.
 3. En PowerShell local, desde la carpeta del proyecto, abre `.env` y agrega temporalmente la cadena de conexión como `DATABASE_URL=...`. El archivo `.env` está excluido de Git:
    ```powershell
    cd "C:\Users\Usuario\Downloads\AgroPlagaIA\agroplaga"
@@ -53,7 +53,7 @@ Vercel ejecuta la aplicación en funciones y no conserva una base SQLite ni los 
    python seed.py --production
    ```
    Pega la URL de Neon en `.env` en una línea `DATABASE_URL=...`, guarda el archivo y ejecuta el comando. Te pedirá nombre, correo y contraseña para crear el primer administrador; la contraseña no se muestra al escribirla. Este modo crea las tablas y catálogos sin las cuentas públicas de demostración. Al terminar, quita la línea `DATABASE_URL` de `.env` para que tu copia local vuelva a usar SQLite.
-4. Vuelve a Vercel → **Deployments** y redepliega el último commit para que instale `psycopg` y lea `DATABASE_URL`.
+4. Vuelve a Vercel → **Deployments** y redepliega el último commit para que instale `psycopg` y lea `DATABASE_URL`. Si está vacía o la conexión falla, la app informa que no puede acceder a la base, en lugar de guardar cuentas en el disco efímero.
 5. Prueba crear una cuenta en el sitio. Las cuentas que existían solo en tu SQLite local no se copian: vuelve a registrarlas en el sitio. Para iniciar sesión como administrador, usa el correo y la contraseña que ingresaste en el paso 3.
 
 ### Completar catálogos faltantes en Neon
@@ -65,7 +65,7 @@ Este comando inserta únicamente cultivos o enfermedades faltantes; no borra cue
 
 ### Verificación de correo por Gmail
 1. En tu cuenta de Google activa la verificación en dos pasos y crea una contraseña de aplicación en [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords). Usa esa contraseña de aplicación, no la contraseña normal de Gmail.
-2. En Vercel → **Settings** → **Environment Variables**, agrega `SMTP_USERNAME` con tu dirección Gmail y `SMTP_PASSWORD` con la contraseña de aplicación. Agrega también `SMTP_FROM` con la misma dirección. Si no defines `SMTP_HOST` y `SMTP_PORT`, se usan `smtp.gmail.com` y `587`.
+2. En Vercel → **Settings** → **Environment Variables**, crea estas tres variables por separado para **Production**: `SMTP_USERNAME` con tu dirección Gmail, `SMTP_PASSWORD` con la contraseña de aplicación y `SMTP_FROM` con la misma dirección Gmail. No escribas las tres dentro del valor de `DATABASE_URL`. Si no defines `SMTP_HOST` y `SMTP_PORT`, se usan `smtp.gmail.com` y `587`.
 3. En Vercel redepliega el proyecto para aplicar las variables.
 4. El registro envía un código de 6 dígitos, válido por 10 minutos. Luego de validarlo, se crea la cuenta y la sesión queda iniciada. No publiques la contraseña de aplicación ni la guardes en Git.
 

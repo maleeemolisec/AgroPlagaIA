@@ -157,6 +157,19 @@ def cabeceras(resp):
     return resp
 
 
+@app.errorhandler(dbm.DatabaseConfigurationError)
+@app.errorhandler(dbm.DatabaseConnectionError)
+@app.errorhandler(dbm.DatabaseOperationError)
+def error_base_datos(error):
+    app.logger.error("Error de configuración/conexión de base de datos: %s", error, exc_info=True)
+    return render_template(
+        "error.html",
+        codigo=503,
+        mensaje=("No se pudo acceder a la base de datos. En Vercel, verificá que "
+                 "DATABASE_URL esté configurada correctamente para Production."),
+    ), 503
+
+
 @app.context_processor
 def limites_subida():
     return {"max_foto_mb": MAX_FOTO_BYTES // (1024 * 1024)}
