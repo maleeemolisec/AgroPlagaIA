@@ -162,11 +162,29 @@ def cabeceras(resp):
 @app.errorhandler(dbm.DatabaseOperationError)
 def error_base_datos(error):
     app.logger.error("Error de configuración/conexión de base de datos: %s", error, exc_info=True)
+    causa = error.__cause__
+    sqlstate = getattr(causa, "sqlstate", None)
+    diagnosticos_sqlstate = {
+        "28P01": "Neon rechazó el usuario o la contraseña de DATABASE_URL.",
+        "3D000": "La base indicada en DATABASE_URL no existe.",
+        "3F000": "Falta el esquema de base de datos esperado.",
+        "42P01": "Falta una tabla en la base indicada; revisá la rama y la base de Neon.",
+        "42501": "El rol de DATABASE_URL no tiene permisos suficientes.",
+    }
+    if isinstance(error, dbm.DatabaseConfigurationError):
+        diagnostico = str(error)
+    elif sqlstate in diagnosticos_sqlstate:
+        diagnostico = diagnosticos_sqlstate[sqlstate]
+    elif causa:
+        diagnostico = f"{type(causa).__name__}" + (
+            f" (SQLSTATE {sqlstate})" if sqlstate else "")
+    else:
+        diagnostico = type(error).__name__
     return render_template(
         "error.html",
         codigo=503,
         mensaje=("No se pudo acceder a la base de datos. En Vercel, verificá que "
-                 "DATABASE_URL esté configurada correctamente para Production."),
+                 f"DATABASE_URL esté configurada correctamente para Production. Diagnóstico: {diagnostico}"),
     ), 503
 
 

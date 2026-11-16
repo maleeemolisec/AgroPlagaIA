@@ -93,12 +93,17 @@ check("Fallo de configuración de base se muestra como 503 y explica revisar DAT
       and b"Internal Server Error" not in respuesta_error_db.data)
 cliente_error_consulta = A.app.test_client()
 token_error_consulta = csrf(cliente_error_consulta)
-with patch.object(A.dbm, "DB", side_effect=A.dbm.DatabaseOperationError("No existe la tabla usuarios")):
+error_sql_simulado = A.dbm.DatabaseOperationError("Falló una consulta a la base de datos.")
+causa_sql_simulada = RuntimeError()
+causa_sql_simulada.sqlstate = "42P01"
+error_sql_simulado.__cause__ = causa_sql_simulada
+with patch.object(A.dbm, "DB", side_effect=error_sql_simulado):
     respuesta_error_consulta = cliente_error_consulta.post("/login", data={
         "_csrf": token_error_consulta, "email": "persona@test.com", "password": "Clave1234"
     })
-check("Fallo en consulta SQL se registra y muestra el aviso de base de datos",
+check("Fallo SQL muestra un diagnóstico seguro de tabla faltante",
       respuesta_error_consulta.status_code == 503
+      and "Falta una tabla" in respuesta_error_consulta.get_data(as_text=True)
       and "DATABASE_URL" in respuesta_error_consulta.get_data(as_text=True))
 
 url_anterior, argumentos_anteriores = A.dbm.DATABASE_URL, sys.argv[:]
