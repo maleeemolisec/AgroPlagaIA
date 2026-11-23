@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block titulo %}Verificar teléfono{% endblock %}
+{% block contenido %}
+<section class="tarjeta formulario angosto">
+  <h1>Ingresá el código</h1>
+  <p class="ayuda">Enviamos un SMS de 6 dígitos al número <b>{{ tel_oculto }}</b>. Vence en pocos minutos.</p>
+  <form method="post" novalidate data-validar>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <label>Código de verificación
+      <input type="text" name="codigo" required inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]*" maxlength="10" autofocus>
+    </label>
+    <button class="btn" type="submit">Verificar</button>
+  </form>
+  <form method="post" class="inline-bloque">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}"><input type="hidden" name="accion" value="reenviar">
+    <button class="btn btn-sec" type="submit">Reenviar código</button>
+  </form>
+  <p class="aparte"><a href="{{ url_for('telefono_solicitar', modo=modo) }}">Cambiar de número</a></p>
+</section>
+{% endblock %}

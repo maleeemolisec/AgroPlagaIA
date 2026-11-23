@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block titulo %}Conexión con la IA{% endblock %}
+{% block contenido %}
+<section class="tarjeta formulario angosto">
+  <h1>Conexión con la IA (Gemini)</h1>
+  <div class="alerta alerta-{{ 'success' if ok else 'danger' }}">{{ mensaje }}</div>
+  <dl><dt>API key</dt><dd>{{ clave }}</dd><dt>Modelo configurado</dt><dd>{{ modelo }}</dd></dl>
+  <h3>Cómo configurarla</h3>
+  <ol>
+    <li>Creá la clave en <b>aistudio.google.com/apikey</b>.</li>
+    <li>En la carpeta del proyecto, copiá <code>.env.example</code> con el nombre <code>.env</code> (sin “.example”).</li>
+    <li>Completá la línea <code>GEMINI_API_KEY=tu_clave</code> (sin comillas ni espacios).</li>
+    <li>Reiniciá la aplicación (o botón <b>Reload</b> en PythonAnywhere) y recargá esta página.</li>
+  </ol>
+  <a class="btn" href="{{ url_for('admin_ia') }}">Probar de nuevo</a>
+</section>
+{% endblock %}

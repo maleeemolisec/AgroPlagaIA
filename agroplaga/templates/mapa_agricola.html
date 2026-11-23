@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% block titulo %}Mapa productivo de Argentina{% endblock %}
+{% block head %}<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">{% endblock %}
+{% block contenido %}
+<section class="tarjeta">
+  <h1>🛰️ Mapa productivo de Argentina</h1>
+  <p>Combiná los lotes que registraste con una capa satelital de vegetación y consultá el clima actualizado para cualquier punto del mapa.</p>
+  <div class="alerta alerta-info">
+    <strong>Cómo leerlo:</strong> el NDVI muestra vigor/cobertura vegetal, no identifica por sí solo qué cultivo hay.
+    Los nombres de cultivos provienen de tus lotes registrados. Por ahora cada campo se muestra como punto central,
+    y los perímetros de lotes que dibujaste aparecen con línea roja.
+  </div>
+  <label for="filtroCultivo">Filtrar campos por cultivo</label>
+  <select id="filtroCultivo">
+    <option value="">Todos los cultivos registrados</option>
+    {% for c in cultivos %}<option value="{{ c.nombre }}">{{ c.nombre }}</option>{% endfor %}
+  </select>
+  <div id="mapaProductivo" class="mapa" style="height: min(68vh, 680px); min-height: 420px"></div>
+  <p id="estadoMapa" class="ayuda" role="status">Cargando campos registrados y fecha de la capa satelital…</p>
+  <p class="leyenda">Capas: cartografía OSM, imagen satelital Esri, vegetación NDVI NASA y campos/lotes registrados. Los perímetros guardados se marcan en rojo.</p>
+</section>
+
+<section class="tarjeta">
+  <h2>Clima del punto seleccionado</h2>
+  <p class="ayuda">Tocá el mapa o un campo. Se consulta el modelo meteorológico actual y el pronóstico de 7 días. Los datos meteorológicos no reemplazan una estación local, un análisis de suelo ni una recomendación agronómica.</p>
+  <div id="climaPunto" aria-live="polite">Elegí un punto del mapa para consultar.</div>
+  <p id="actualizacionClima" class="ayuda"></p>
+</section>
+
+<section class="tarjeta">
+  <h2>Qué aporta esta vista</h2>
+  <ul>
+    <li><strong>Vegetación satelital:</strong> indicador regional, compuesto de observaciones; puede verse afectado por nubes, suelo expuesto y resolución.</li>
+    <li><strong>Campos con cultivo:</strong> parcelas activas que vos cargaste en AgroPlaga IA, no un inventario de todos los campos del país.</li>
+    <li><strong>Clima:</strong> condiciones y pronóstico para el lugar consultado. No se recomienda sembrar basándose solo en clima o verdor: la aptitud real también requiere suelo, agua disponible, fecha de siembra y manejo.</li>
+  </ul>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+  window.MAPA_AGRICOLA = {
+    camposUrl: "{{ url_for('api_mapa_agricola_geojson') }}",
+    ndviFechaUrl: "{{ url_for('api_mapa_agricola_ndvi_fecha') }}"
+  };
+</script>
+<script src="{{ url_for('static', filename='js/mapa_agricola.js') }}"></script>
+{% endblock %}

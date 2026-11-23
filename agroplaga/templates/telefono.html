@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block titulo %}{{ titulo }}{% endblock %}
+{% block contenido %}
+<section class="tarjeta formulario angosto">
+  <h1>{{ titulo }}</h1>
+  <p class="ayuda">Te enviaremos un código por SMS desde el teléfono Android configurado. La PC y el teléfono deben estar en la misma red Wi-Fi. Escribí el número con código de país (Argentina: +54 9 y el código de área, sin 0 ni 15). Puede aplicar el costo de SMS de tu operadora.</p>
+  <form method="post" novalidate data-validar>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <label>Número de teléfono
+      <input type="tel" name="telefono" value="{{ telefono }}" required inputmode="tel" autocomplete="tel" placeholder="+54 9 351 1234567" autofocus>
+    </label>
+    <button class="btn" type="submit">Enviarme el código</button>
+  </form>
+  <p class="aparte">
+    {% if modo == 'login' %}¿No tenés cuenta? <a href="{{ url_for('registro') }}">Registrate y verificá tu correo</a>{% endif %}
+    · <a href="{{ url_for('login') }}">Otras formas de ingresar</a>
+  </p>
+</section>
+{% endblock %}

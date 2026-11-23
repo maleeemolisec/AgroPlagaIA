@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block titulo %}Detección de enfermedades en cultivos{% endblock %}
+{% block contenido %}
+<section class="hero">
+  <h1>Detectá enfermedades en tus cultivos con una foto</h1>
+  <p>Registrá tus campos y lotes, sacale una foto a la hoja y la inteligencia artificial identifica el cultivo,
+     sugiere posibles enfermedades y te indica qué inspeccionar. Todo queda guardado con fecha y ubicación.</p>
+  <div class="acciones">
+    <a class="btn" href="{{ url_for('registro') }}">Crear cuenta gratis</a>
+    <a class="btn btn-sec" href="{{ url_for('login') }}">Ya tengo cuenta</a>
+  </div>
+</section>
+{% endblock %}
+<section class="grilla-3">
+  <article class="tarjeta"><h3>📷 Foto y análisis</h3><p>Tomá la foto desde el celular o subila desde tu equipo. El análisis demora unos segundos.</p></article>
+  <article class="tarjeta"><h3>🗺️ Mapa de hallazgos</h3><p>Cada análisis queda geolocalizado para ver dónde aparecen los problemas.</p></article>
+  <article class="tarjeta"><h3>📄 Informes</h3><p>Resúmenes por lote o por cultivo, con redacción automática y para imprimir.</p></article>
+</section>

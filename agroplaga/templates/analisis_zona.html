@@ -1,0 +1,116 @@
+{% extends 'base.html' %}
+{% block titulo %}Análisis de zona satelital{% endblock %}
+{% block head %}<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">{% endblock %}
+{% block contenido %}
+<section class="tarjeta">
+  <h1>🛰️ Analizar zona satelital</h1>
+  <p>Elegí un lote para mostrar su perímetro rojo sobre el satélite, o tocá el mapa para elegir el centro de la zona. La imagen satelital puede no ser del día: la fecha depende del proveedor.</p>
+  <form method="post" id="formZona" data-analisis>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <label>Lote registrado (opcional)
+      <select name="lote_id" id="loteZona">
+        <option value="">— Elegir un lote para mostrar su perímetro —</option>
+        {% for l in lotes %}
+        <option value="{{ l.id }}"
+          data-lat="{{ l.latitud if l.latitud is not none else '' }}"
+          data-lng="{{ l.longitud if l.longitud is not none else '' }}"
+          data-limite="{{ l.limite_geojson or '' }}"
+          data-cultivo="{{ l.cultivo_nombre }}"
+          {{ 'selected' if preseleccion == l.id }}>
+          {{ l.campo_nombre }} / {{ l.nombre }} ({{ l.cultivo_nombre }})
+        </option>
+        {% endfor %}
+      </select>
+    </label>
+    <div id="mapaZona" class="mapa" style="height:420px"></div>
+    <div class="fila">
+      <label>Latitud <input type="text" name="latitud" id="zonaLat" value="{{ lat }}" required></label>
+      <label>Longitud <input type="text" name="longitud" id="zonaLng" value="{{ lng }}" required></label>
+      <label>Zoom <input type="number" name="zoom" id="zonaZoom" min="15" max="18" value="{{ zoom }}"></label>
+      <label>Cultivo <input type="text" name="cultivo" id="cultivoZona" value="{{ cultivo or '' }}" placeholder="Ej.: soja"></label>
+    </div>
+    <div class="acciones"><button class="btn" type="submit" id="btnZona">Analizar esta zona</button></div>
+  </form>
+</section>
+
+{% if imagen %}
+<section class="tarjeta">
+  <h2>Imagen analizada</h2>
+  <img src="{{ imagen }}" alt="Mosaico satelital analizado" style="max-width:100%; border-radius:12px">
+  {% if resultado %}
+  <div class="grid-resultado">
+    <p><strong>Estado:</strong> {{ resultado.estado }}</p>
+    <p><strong>Motor:</strong> {{ 'Gemini' if resultado.motor == 'gemini' else 'Sin IA (modo local)' }}</p>
+    {% if resultado.motor == 'gemini' %}
+      <p><strong>Confianza estimada:</strong> {{ (resultado.confianza * 100)|round(1) }}%</p>
+      <p><strong>Severidad:</strong> {{ resultado.severidad }}</p>
+    {% endif %}
+  </div>
+  {% if resultado.motor == 'demo' %}
+  <div class="alerta alerta-warning">
+    <strong>No se usó Gemini.</strong> {{ resultado.error_ia }}
+    No se muestra un porcentaje de cobertura porque la imagen RGB no permite calcular NDVI.
+  </div>
+  {% endif %}
+  <h3>Hallazgos</h3>
+  <ul>{% for x in resultado.hallazgos %}<li>{{ x }}</li>{% endfor %}</ul>
+  {% if resultado.sectores_atencion %}
+  <h3>Sectores de atención</h3>
+  <ul>{% for x in resultado.sectores_atencion %}<li>{{ x }}</li>{% endfor %}</ul>
+  {% endif %}
+  <h3>Recomendaciones</h3>
+  <ul>{% for x in resultado.recomendaciones %}<li>{{ x }}</li>{% endfor %}</ul>
+  <p class="ayuda">{{ resultado.comentario }}</p>
+  <p class="ayuda">{{ resultado.aviso }}</p>
+  {% endif %}
+</section>
+{% endif %}
+<div class="cargando" id="cargandoZona" hidden><div class="spinner"></div><p>Descargando mosaico y analizando patrones espaciales…</p></div>
+{% endblock %}
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  const lat = document.getElementById("zonaLat"), lng = document.getElementById("zonaLng");
+  const zoom = document.getElementById("zonaZoom"), form = document.getElementById("formZona");
+  const lote = document.getElementById("loteZona"), cultivo = document.getElementById("cultivoZona");
+  const mapa = L.map("mapaZona").setView([parseFloat(lat.value), parseFloat(lng.value)], parseInt(zoom.value));
+  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+    maxZoom: 19, attribution: "Tiles &copy; Esri"
+  }).addTo(mapa);
+  let marcador = L.marker(mapa.getCenter()).addTo(mapa);
+  let limite = null;
+  function actualizar(e, centrar) {
+    lat.value = e.lat.toFixed(6); lng.value = e.lng.toFixed(6);
+    marcador.setLatLng([e.lat, e.lng]); if (centrar) mapa.setView([e.lat, e.lng], mapa.getZoom());
+  }
+  function mostrarLimite(o) {
+    if (limite) mapa.removeLayer(limite);
+    limite = null;
+    if (o && o.dataset.limite) {
+      limite = L.geoJSON(JSON.parse(o.dataset.limite), {
+        style: { color: "#ff3b30", weight: 4, opacity: 0.95, fillColor: "#ff3b30", fillOpacity: 0.12 }
+      }).addTo(mapa);
+      mapa.fitBounds(limite.getBounds(), { maxZoom: 16 });
+      actualizar(limite.getBounds().getCenter(), false);
+    } else if (o && o.dataset.lat && o.dataset.lng) {
+      actualizar(L.latLng(parseFloat(o.dataset.lat), parseFloat(o.dataset.lng)), true);
+    }
+  }
+  if (lote) {
+    lote.addEventListener("change", () => {
+      const o = lote.options[lote.selectedIndex];
+      mostrarLimite(o);
+      if (cultivo && o.dataset.cultivo) cultivo.value = o.dataset.cultivo;
+    });
+    if (lote.value) mostrarLimite(lote.options[lote.selectedIndex]);
+  }
+  mapa.on("click", e => actualizar(e.latlng, false));
+  mapa.on("moveend", () => zoom.value = mapa.getZoom());
+  form.addEventListener("submit", () => {
+    document.getElementById("cargandoZona").hidden = false;
+    document.getElementById("btnZona").disabled = true;
+  });
+});
+</script>
+{% endblock %}

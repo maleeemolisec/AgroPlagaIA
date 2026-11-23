@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block titulo %}Cultivos{% endblock %}
+{% block contenido %}
+<h1>Catálogo de cultivos</h1>
+<div class="tabla-wrap"><table><thead><tr><th>Nombre</th><th>Nombre científico</th><th>Descripción</th><th>Lotes</th><th></th></tr></thead><tbody>
+{% for c in cultivos %}
+<tr>
+  <td><input name="nombre" form="f{{ c.id }}" value="{{ c.nombre }}" required></td><td><input name="nombre_cientifico" form="f{{ c.id }}" value="{{ c.nombre_cientifico or '' }}"></td>
+  <td><input name="descripcion" form="f{{ c.id }}" value="{{ c.descripcion or '' }}"></td><td>{{ c.n_lotes }}</td>
+  <td class="acciones-fila"><form id="f{{ c.id }}" method="post" action="{{ url_for('admin_cultivo_editar', cid=c.id) }}" class="inline"><input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn btn-sm" type="submit">Guardar</button></form>
+  <form method="post" action="{{ url_for('admin_cultivo_eliminar', cid=c.id) }}" class="inline" data-confirmar="¿Eliminar el cultivo?">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn btn-sm btn-peligro" type="submit">Eliminar</button></form></td></tr>
+{% endfor %}</tbody></table></div>
+<section class="tarjeta formulario angosto"><h2>Agregar cultivo</h2>
+  <form method="post" novalidate data-validar><input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <label>Nombre <input name="nombre" required minlength="2"></label>
+    <label>Nombre científico <input name="nombre_cientifico"></label>
+    <label>Descripción <input name="descripcion"></label>
+    <button class="btn" type="submit">Agregar</button></form></section>
+{% endblock %}
