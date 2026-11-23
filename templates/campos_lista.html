@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block titulo %}Campos{% endblock %}
+{% block contenido %}
+<div class="encabezado"><h1>Mis campos</h1><a class="btn" href="{{ url_for('campo_nuevo') }}">+ Nuevo campo</a></div>
+{% if campos %}
+<div class="grilla-3">
+  {% for c in campos %}
+  <article class="tarjeta">
+    <h3><a href="{{ url_for('campo_ver', cid=c.id) }}">{{ c.nombre }}</a></h3>
+    <p>{{ c.localidad or '—' }}{% if c.provincia %}, {{ c.provincia }}{% endif %}</p>
+    <p class="meta">{{ c.superficie_ha or '—' }} ha · {{ c.n_lotes }} lote(s){% if g.user.rol != 'productor' %} · {{ c.dueno }}{% endif %}</p>
+    <a class="btn btn-sm btn-sec" href="{{ url_for('campo_ver', cid=c.id) }}">Abrir</a>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<p class="vacio tarjeta">Todavía no registraste campos. <a href="{{ url_for('campo_nuevo') }}">Creá el primero</a>.</p>
+{% endif %}
+{% endblock %}

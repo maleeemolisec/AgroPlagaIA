@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block titulo %}Verificar correo{% endblock %}
+{% block contenido %}
+<section class="tarjeta formulario angosto">
+  <h1>Verificá tu correo</h1>
+  <p>Enviamos un código de 6 dígitos a <b>{{ email }}</b>. Ingresalo para activar tu cuenta e iniciar sesión.</p>
+  <p class="ayuda">El código vence en 10 minutos. Revisá también la carpeta de correo no deseado.</p>
+  <form method="post" action="{{ url_for('verificar_email', email=email) }}" novalidate data-validar>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <label>Código de verificación
+      <input type="text" name="codigo" required inputmode="numeric" autocomplete="one-time-code"
+             pattern="[0-9]{6}" minlength="6" maxlength="6" autofocus>
+    </label>
+    <button class="btn" type="submit">Verificar y crear cuenta</button>
+  </form>
+  <form method="post" action="{{ url_for('reenviar_codigo_email') }}" class="acciones">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <input type="hidden" name="email" value="{{ email }}">
+    <button class="btn btn-sec" type="submit">Reenviar código</button>
+  </form>
+</section>
+{% endblock %}

@@ -1,0 +1,48 @@
+{% extends 'base.html' %}
+{% block titulo %}Panel{% endblock %}
+{% block head %}<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">{% endblock %}
+{% block contenido %}
+<div class="encabezado">
+  <h1>Hola, {{ g.user.nombre.split(' ')[0] }} 👋</h1>
+  <a class="btn" href="{{ url_for('analisis_nuevo') }}">📷 Nuevo análisis</a>
+</div>
+{% if not ia_real %}
+<div class="alerta alerta-warning">La IA externa no está configurada: los análisis se hacen en <b>modo demo</b>. Definí <code>GEMINI_API_KEY</code> para activar el diagnóstico completo.</div>
+{% endif %}
+<section class="kpis">
+  <div class="kpi"><b>{{ n_campos }}</b><span>Campos</span></div>
+  <div class="kpi"><b>{{ n_lotes }}</b><span>Lotes</span></div>
+  <div class="kpi"><b>{{ est.total }}</b><span>Análisis</span></div>
+  <div class="kpi kpi-ok"><b>{{ est.sanos }}</b><span>Sanos</span></div>
+  <div class="kpi kpi-mal"><b>{{ est.enfermos }}</b><span>Con síntomas</span></div>
+  <div class="kpi kpi-dud"><b>{{ est.dudosos }}</b><span>Dudosos</span></div>
+</section>
+<section class="grilla-2">
+  <article class="tarjeta"><h2>Estado de los análisis</h2><canvas id="graficoEstado" height="200"></canvas></article>
+  <article class="tarjeta"><h2>Problemas más frecuentes</h2>
+    {% if est.enfermedades %}<canvas id="graficoEnf" height="200"></canvas>{% else %}<p class="vacio">Todavía no hay hallazgos.</p>{% endif %}
+  </article>
+</section>
+<section class="tarjeta"><h2>Mapa de análisis</h2><div id="mapa" class="mapa"></div>
+  <p class="leyenda"><span class="punto verde"></span> Sano <span class="punto rojo"></span> Con síntomas <span class="punto amarillo"></span> Dudoso</p></section>
+<section class="tarjeta"><h2>Últimos análisis</h2>
+  {% if recientes %}
+  <div class="tabla-wrap"><table>
+    <thead><tr><th>Fecha</th><th>Lote</th><th>Cultivo</th><th>Resultado</th><th></th></tr></thead>
+    <tbody>{% for a in recientes %}
+      <tr><td>{{ a.fecha|fecha }}</td><td>{{ a.campo_nombre }} / {{ a.lote_nombre }}</td><td>{{ a.cultivo_nombre }}</td>
+        <td><span class="chip chip-{{ a.estado }}">{{ a.enfermedad_nombre or a.enfermedad_texto or a.estado|replace('_',' ') }}</span></td>
+        <td><a href="{{ url_for('analisis_ver', aid=a.id) }}">Ver</a></td></tr>
+    {% endfor %}</tbody></table></div>
+  {% else %}<p class="vacio">Aún no hay análisis. <a href="{{ url_for('analisis_nuevo') }}">Hacé el primero</a>.</p>{% endif %}
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+  window.DATOS = {{ {'sanos': est.sanos, 'enfermos': est.enfermos, 'dudosos': est.dudosos, 'enfermedades': est.enfermedades}|tojson }};
+  window.URL_GEOJSON = "{{ url_for('api_geojson') }}";
+</script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+{% endblock %}

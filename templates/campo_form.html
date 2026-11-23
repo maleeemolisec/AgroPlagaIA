@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block titulo %}{{ 'Nuevo campo' if nuevo else 'Editar campo' }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">{% endblock %}
+{% block contenido %}
+<section class="tarjeta formulario">
+  <h1>{{ 'Nuevo campo' if nuevo else 'Editar campo' }}</h1>
+  <form method="post" novalidate data-validar>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <label>Nombre del campo <input type="text" name="nombre" value="{{ campo.nombre or '' }}" required minlength="2" maxlength="120"></label>
+    <div class="fila">
+      <label>Localidad <input type="text" name="localidad" value="{{ campo.localidad or '' }}" maxlength="120"></label>
+      <label>Provincia <input type="text" name="provincia" value="{{ campo.provincia or '' }}" maxlength="80"></label>
+      <label>Superficie (ha) <input type="number" name="superficie_ha" value="{{ campo.superficie_ha if campo.superficie_ha is not none else '' }}" min="0" step="0.01"></label>
+    </div>
+    <p class="ayuda">Ubicación del campo: tocá el mapa, o usá tu ubicación actual.</p>
+    <div id="mapa" class="mapa mapa-chico"></div>
+    <div class="fila">
+      <label>Latitud <input type="text" name="latitud" id="latitud" value="{{ campo.latitud if campo.latitud is not none else '' }}" inputmode="decimal"></label>
+      <label>Longitud <input type="text" name="longitud" id="longitud" value="{{ campo.longitud if campo.longitud is not none else '' }}" inputmode="decimal"></label>
+      <button type="button" class="btn btn-sec" id="btnUbicacion">📍 Usar mi ubicación</button>
+    </div>
+    <div class="acciones">
+      <button class="btn" type="submit">Guardar</button>
+      <a class="btn btn-sec" href="{{ url_for('campos_lista') if nuevo else url_for('campo_ver', cid=campo.id) }}">Cancelar</a>
+    </div>
+  </form>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="{{ url_for('static', filename='js/mapa_selector.js') }}"></script>
+{% endblock %}

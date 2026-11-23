@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block titulo %}{{ 'Nuevo lote' if nuevo else 'Editar lote' }}{% endblock %}
+{% block contenido %}
+<section class="tarjeta formulario angosto">
+  <h1>{{ 'Nuevo lote' if nuevo else 'Editar lote' }} <small>en {{ campo.nombre }}</small></h1>
+  <form method="post" novalidate data-validar>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <label>Nombre del lote <input type="text" name="nombre" value="{{ lote.nombre or '' }}" required maxlength="120"></label>
+    <label>Cultivo
+      <select name="cultivo_id" required>
+        <option value="">— Elegir —</option>
+        {% for c in cultivos %}<option value="{{ c.id }}" {{ 'selected' if lote.cultivo_id == c.id }}>{{ c.nombre }}</option>{% endfor %}
+      </select></label>
+    <div class="fila">
+      <label>Superficie (ha) <input type="number" name="superficie_ha" min="0" step="0.01" value="{{ lote.superficie_ha if lote.superficie_ha is not none else '' }}"></label>
+      <label>Fecha de siembra <input type="date" name="fecha_siembra" value="{{ (lote.fecha_siembra|string)[:10] if lote.fecha_siembra else '' }}"></label>
+      <label>Estado <select name="estado">
+        {% for e in ['activo','cosechado','barbecho'] %}<option value="{{ e }}" {{ 'selected' if lote.estado == e }}>{{ e|capitalize }}</option>{% endfor %}
+      </select></label>
+    </div>
+    <div class="acciones"><button class="btn" type="submit">Guardar</button>
+      <a class="btn btn-sec" href="{{ url_for('campo_ver', cid=campo.id) }}">Cancelar</a></div>
+  </form>
+</section>
+{% endblock %}

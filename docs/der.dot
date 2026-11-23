@@ -1,0 +1,62 @@
+digraph DER {
+  graph [rankdir=LR, fontname="Helvetica", bgcolor="white", nodesep=0.5, ranksep=1.1, pad=0.3];
+  node  [shape=plain, fontname="Helvetica"];
+  edge  [fontname="Helvetica", fontsize=10, color="#2e7d32", penwidth=1.6, arrowhead=crow, arrowtail=tee, dir=both];
+
+  usuarios [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4">
+    <TR><TD BGCOLOR="#2e7d32"><FONT COLOR="white"><B>usuarios</B></FONT></TD></TR>
+    <TR><TD ALIGN="LEFT"><B>PK</B> id</TD></TR><TR><TD ALIGN="LEFT">nombre</TD></TR>
+    <TR><TD ALIGN="LEFT">email (único)</TD></TR><TR><TD ALIGN="LEFT">password_hash</TD></TR>
+    <TR><TD ALIGN="LEFT">rol (admin/tecnico/productor)</TD></TR><TR><TD ALIGN="LEFT">activo</TD></TR>
+    <TR><TD ALIGN="LEFT">creado</TD></TR></TABLE>>];
+
+  campos [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4">
+    <TR><TD BGCOLOR="#2e7d32"><FONT COLOR="white"><B>campos</B></FONT></TD></TR>
+    <TR><TD ALIGN="LEFT"><B>PK</B> id</TD></TR><TR><TD ALIGN="LEFT"><I>FK</I> usuario_id</TD></TR>
+    <TR><TD ALIGN="LEFT">nombre</TD></TR><TR><TD ALIGN="LEFT">localidad / provincia</TD></TR>
+    <TR><TD ALIGN="LEFT">superficie_ha</TD></TR><TR><TD ALIGN="LEFT">latitud, longitud</TD></TR></TABLE>>];
+
+  lotes [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4">
+    <TR><TD BGCOLOR="#2e7d32"><FONT COLOR="white"><B>lotes</B></FONT></TD></TR>
+    <TR><TD ALIGN="LEFT"><B>PK</B> id</TD></TR><TR><TD ALIGN="LEFT"><I>FK</I> campo_id</TD></TR>
+    <TR><TD ALIGN="LEFT"><I>FK</I> cultivo_id</TD></TR><TR><TD ALIGN="LEFT">nombre</TD></TR>
+    <TR><TD ALIGN="LEFT">superficie_ha</TD></TR><TR><TD ALIGN="LEFT">fecha_siembra</TD></TR>
+    <TR><TD ALIGN="LEFT">estado</TD></TR></TABLE>>];
+
+  cultivos [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4">
+    <TR><TD BGCOLOR="#6d4c41"><FONT COLOR="white"><B>cultivos</B></FONT></TD></TR>
+    <TR><TD ALIGN="LEFT"><B>PK</B> id</TD></TR><TR><TD ALIGN="LEFT">nombre (único)</TD></TR>
+    <TR><TD ALIGN="LEFT">nombre_cientifico</TD></TR><TR><TD ALIGN="LEFT">descripcion</TD></TR></TABLE>>];
+
+  enfermedades [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4">
+    <TR><TD BGCOLOR="#6d4c41"><FONT COLOR="white"><B>enfermedades</B></FONT></TD></TR>
+    <TR><TD ALIGN="LEFT"><B>PK</B> id</TD></TR><TR><TD ALIGN="LEFT"><I>FK</I> cultivo_id (nulo = general)</TD></TR>
+    <TR><TD ALIGN="LEFT">nombre</TD></TR><TR><TD ALIGN="LEFT">nombre_cientifico</TD></TR>
+    <TR><TD ALIGN="LEFT">agente</TD></TR><TR><TD ALIGN="LEFT">sintomas</TD></TR>
+    <TR><TD ALIGN="LEFT">recomendacion</TD></TR></TABLE>>];
+
+  analisis [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4">
+    <TR><TD BGCOLOR="#1565c0"><FONT COLOR="white"><B>analisis</B></FONT></TD></TR>
+    <TR><TD ALIGN="LEFT"><B>PK</B> id</TD></TR><TR><TD ALIGN="LEFT"><I>FK</I> lote_id</TD></TR>
+    <TR><TD ALIGN="LEFT"><I>FK</I> usuario_id</TD></TR><TR><TD ALIGN="LEFT"><I>FK</I> enfermedad_id (nulo)</TD></TR>
+    <TR><TD ALIGN="LEFT">foto, fecha, latitud, longitud</TD></TR>
+    <TR><TD ALIGN="LEFT">cultivo_detectado, estado</TD></TR><TR><TD ALIGN="LEFT">enfermedad_texto</TD></TR>
+    <TR><TD ALIGN="LEFT">confianza, severidad, indice_dano</TD></TR>
+    <TR><TD ALIGN="LEFT">sintomas, causas, recomendaciones (JSON)</TD></TR>
+    <TR><TD ALIGN="LEFT">motor, observaciones, validado</TD></TR></TABLE>>];
+
+  informes [label=<<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" CELLPADDING="4">
+    <TR><TD BGCOLOR="#1565c0"><FONT COLOR="white"><B>informes</B></FONT></TD></TR>
+    <TR><TD ALIGN="LEFT"><B>PK</B> id</TD></TR><TR><TD ALIGN="LEFT"><I>FK</I> usuario_id</TD></TR>
+    <TR><TD ALIGN="LEFT">tipo (cultivo/lote)</TD></TR><TR><TD ALIGN="LEFT">referencia_id</TD></TR>
+    <TR><TD ALIGN="LEFT">titulo, contenido, creado</TD></TR></TABLE>>];
+
+  usuarios -> campos   [label="1 : N  posee"];
+  campos   -> lotes    [label="1 : N  contiene"];
+  cultivos -> lotes    [label="1 : N  se siembra en"];
+  cultivos -> enfermedades [label="1 : N  afecta a"];
+  lotes    -> analisis [label="1 : N  tiene"];
+  usuarios -> analisis [label="1 : N  realiza"];
+  enfermedades -> analisis [label="1 : N  se asocia a"];
+  usuarios -> informes [label="1 : N  genera"];
+}

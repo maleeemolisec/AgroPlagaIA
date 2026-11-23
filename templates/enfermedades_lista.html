@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block titulo %}Enfermedades{% endblock %}
+{% block contenido %}
+<h1>Catálogo de enfermedades y problemas</h1>
+<label class="buscador">🔎 Buscar <input type="search" id="buscar" placeholder="Nombre, cultivo, agente…"></label>
+<div class="tabla-wrap"><table id="tablaAnalisis"><thead><tr><th>Cultivo</th><th>Enfermedad</th><th>Agente</th><th>Síntomas</th><th>Qué inspeccionar</th>{% if g.user.rol == 'admin' %}<th></th>{% endif %}</tr></thead><tbody>
+{% for e in enfermedades %}
+<tr><td>{{ e.cultivo_nombre or 'General' }}</td><td><b>{{ e.nombre }}</b><br><small><i>{{ e.nombre_cientifico or '' }}</i></small></td><td>{{ e.agente }}</td><td>{{ e.sintomas or '—' }}</td><td>{{ e.recomendacion or '—' }}</td>
+{% if g.user.rol == 'admin' %}<td class="acciones-fila"><details><summary>✏️</summary>
+  <form method="post" action="{{ url_for('admin_enfermedad_editar', eid=e.id) }}" class="mini-form">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <select name="cultivo_id"><option value="">General</option>{% for c in cultivos %}<option value="{{ c.id }}" {{ 'selected' if e.cultivo_id == c.id }}>{{ c.nombre }}</option>{% endfor %}</select>
+    <input name="nombre" value="{{ e.nombre }}" required><input name="nombre_cientifico" value="{{ e.nombre_cientifico or '' }}" placeholder="Nombre científico">
+    <select name="agente">{% for a in ['hongo','bacteria','virus','plaga','nutricional','otro'] %}<option {{ 'selected' if e.agente == a }}>{{ a }}</option>{% endfor %}</select>
+    <textarea name="sintomas" rows="2" placeholder="Síntomas">{{ e.sintomas or '' }}</textarea><textarea name="recomendacion" rows="2" placeholder="Recomendación">{{ e.recomendacion or '' }}</textarea>
+    <button class="btn btn-sm" type="submit">Guardar</button></form>
+  <form method="post" action="{{ url_for('admin_enfermedad_eliminar', eid=e.id) }}" data-confirmar="¿Eliminar del catálogo?">
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}"><button class="btn btn-sm btn-peligro" type="submit">Eliminar</button></form></details></td>{% endif %}</tr>
+{% endfor %}</tbody></table></div>
+{% if g.user.rol == 'admin' %}
+<section class="tarjeta formulario"><h2>Agregar enfermedad</h2>
+  <form method="post" action="{{ url_for('admin_enfermedad_nueva') }}" novalidate data-validar>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <div class="fila"><label>Cultivo <select name="cultivo_id"><option value="">General</option>{% for c in cultivos %}<option value="{{ c.id }}">{{ c.nombre }}</option>{% endfor %}</select></label>
+      <label>Nombre <input name="nombre" required minlength="2"></label>
+      <label>Nombre científico <input name="nombre_cientifico"></label>
+      <label>Agente <select name="agente">{% for a in ['hongo','bacteria','virus','plaga','nutricional','otro'] %}<option>{{ a }}</option>{% endfor %}</select></label></div>
+    <label>Síntomas <textarea name="sintomas" rows="2"></textarea></label>
+    <label>Qué inspeccionar <textarea name="recomendacion" rows="2"></textarea></label>
+    <button class="btn" type="submit">Agregar</button></form></section>
+{% endif %}
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/filtro_tabla.js') }}"></script>{% endblock %}

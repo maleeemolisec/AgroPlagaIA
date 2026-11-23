@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+{% block titulo %}Corregir análisis #{{ a.id }}{% endblock %}
+{% block contenido %}
+<section class="tarjeta formulario angosto">
+  <h1>Corregir / validar análisis #{{ a.id }}</h1>
+  <p class="ayuda">La IA puede equivocarse. Si inspeccionaste la planta, corregí el resultado y marcalo como validado.</p>
+  <form method="post" novalidate>
+    <input type="hidden" name="_csrf" value="{{ csrf_token }}">
+    <label>Estado <select name="estado">
+      {% for e in ['sano','enfermo','dudoso','no_planta'] %}<option value="{{ e }}" {{ 'selected' if a.estado == e }}>{{ e|replace('_',' ')|capitalize }}</option>{% endfor %}</select></label>
+    <label>Enfermedad / problema (catálogo) <select name="enfermedad_id">
+      <option value="">— Ninguna / sin identificar —</option>
+      {% for e in enfermedades %}<option value="{{ e.id }}" {{ 'selected' if a.enfermedad_id == e.id }}>{{ e.nombre }}</option>{% endfor %}</select></label>
+    <label>Observaciones <textarea name="observaciones" rows="3" maxlength="500">{{ a.observaciones or '' }}</textarea></label>
+    <label class="check"><input type="checkbox" name="validado" {{ 'checked' if a.validado }}> Confirmado por inspección a campo</label>
+    <div class="acciones"><button class="btn" type="submit">Guardar</button>
+      <a class="btn btn-sec" href="{{ url_for('analisis_ver', aid=a.id) }}">Cancelar</a></div>
+  </form>
+</section>
+{% endblock %}
