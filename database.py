@@ -154,3 +154,114 @@ def esquema_path():
     else:
         nombre = "schema_mysql.sql" if es_mysql() else "schema.sql"
     return os.path.join(BASE_DIR, nombre)
+
+
+# ==========================================================================
+# Preparación automática de la base (crea tablas faltantes y migra, SIN borrar datos)
+# ==========================================================================
+import threading  # noqa: E402
+
+_base_lista = False
+_base_lock = threading.Lock()
+
+TABLAS_APP = ("usuarios", "cultivos", "enfermedades", "campos", "lotes", "analisis", "informes", "email_verifications")
+
+
+def _esquema_idempotente(texto):
+    """Convierte schema_*.sql en un script que NO borra nada (quita DROP y usa IF NOT EXISTS)."""
+    lineas = [l for l in texto.replace("\r", "").split("\n") if not l.strip().upper().startswith("DROP TABLE")]
+    t = "\n".join(lineas)
+    t = re.sub(r"CREATE TABLE (?!IF NOT EXISTS)", "CREATE TABLE IF NOT EXISTS ", t)
+    if not es_mysql():                                  # MySQL no admite IF NOT EXISTS en índices
+        t = re.sub(r"CREATE INDEX (?!IF NOT EXISTS)", "CREATE INDEX IF NOT EXISTS ", t)
+    t = re.sub(r"SET FOREIGN_KEY_CHECKS\s*=\s*[01]\s*;", "", t)
+    return t
+
+
+def _faltan_tablas(d):
+    if es_postgres():
+        cols = ", ".join(f"to_regclass('{t}') IS NULL AS {t}" for t in TABLAS_APP)
+        fila = d.uno(f"SELECT {cols}")
+        return [t for t, falta in fila.items() if falta]
+    faltan = []
+    for t in TABLAS_APP:
+        try:
+            d.uno(f"SELECT 1 FROM {t} LIMIT 1")
+        except DatabaseOperationError:
+            faltan.append(t)
+    return faltan
+
+
+def _ddl_identidades():
+    if es_postgres():
+        pk, ts = "SERIAL PRIMARY KEY", "TIMESTAMP"
+    elif es_mysql():
+        pk, ts = "INT AUTO_INCREMENT PRIMARY KEY", "DATETIME"
+    else:
+        pk, ts = "INTEGER PRIMARY KEY AUTOINCREMENT", "TEXT"
+    return (f"CREATE TABLE IF NOT EXISTS identidades ("
+            f"id {pk}, usuario_id INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE, "
+            f"proveedor VARCHAR(20) NOT NULL, proveedor_uid VARCHAR(100) NOT NULL, "
+            f"creado {ts} NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE (proveedor, proveedor_uid))")
+
+
+def _agregar_columna(d, tabla, columna, tipo):
+    try:
+        d.uno(f"SELECT {columna} FROM {tabla} LIMIT 1")
+    except DatabaseOperationError:
+        d.ejecutar(f"ALTER TABLE {tabla} ADD COLUMN {columna} {tipo}", devolver_id=False)
+
+
+def asegurar_base():
+    """Crea lo que falte, agrega columnas nuevas y carga catálogos. Se ejecuta una vez por proceso."""
+    global _base_lista
+    if _base_lista:
+        return
+    with _base_lock:
+        if _base_lista:
+            return
+        d = DB()
+        try:
+            if _faltan_tablas(d):
+                with open(esquema_path(), encoding="utf-8") as f:
+                    d.script(_esquema_idempotente(f.read()))
+                # email_verifications puede no estar en el esquema de SQLite/MySQL
+                d.script("""CREATE TABLE IF NOT EXISTS email_verifications (
+                    email VARCHAR(320) PRIMARY KEY, nombre VARCHAR(120) NOT NULL,
+                    password_hash VARCHAR(255) NOT NULL, code_hash CHAR(64) NOT NULL,
+                    expires_at BIGINT NOT NULL, attempts SMALLINT NOT NULL DEFAULT 0,
+                    last_sent_at BIGINT NOT NULL)""")
+            # Columnas y tablas agregadas en versiones nuevas
+            _agregar_columna(d, "usuarios", "telefono", "VARCHAR(20)")
+            _agregar_columna(d, "analisis", "comentario_ia", "TEXT")
+            _agregar_columna(d, "analisis", "alertas", "TEXT")
+            _agregar_columna(d, "lotes", "limite_geojson", "LONGTEXT" if es_mysql() else "TEXT")
+            try:
+                d.ejecutar("CREATE UNIQUE INDEX idx_usuarios_telefono ON usuarios(telefono)", devolver_id=False)
+            except DatabaseOperationError:
+                pass                                   # ya existía
+            d.script(_ddl_identidades())
+            # Catálogos (cultivos y enfermedades) si están vacíos
+            if d.uno("SELECT COUNT(*) AS n FROM cultivos")["n"] == 0:
+                import seed
+                seed.cargar_catalogos(d)
+            _crear_admin_desde_entorno(d)
+        finally:
+            d.cerrar()
+        _base_lista = True
+
+
+def _crear_admin_desde_entorno(d):
+    """Si definís ADMIN_EMAIL y ADMIN_PASSWORD y todavía no hay administrador, lo crea."""
+    email = os.environ.get("ADMIN_EMAIL", "").strip().lower()
+    clave = os.environ.get("ADMIN_PASSWORD", "")
+    if not email or len(clave) < 8:
+        return
+    if d.uno("SELECT id FROM usuarios WHERE rol = 'admin' LIMIT 1"):
+        return
+    if d.uno("SELECT id FROM usuarios WHERE email = ?", (email,)):
+        d.ejecutar("UPDATE usuarios SET rol = 'admin' WHERE email = ?", (email,), devolver_id=False)
+        return
+    from werkzeug.security import generate_password_hash
+    d.ejecutar("INSERT INTO usuarios (nombre, email, password_hash, rol) VALUES (?,?,?, 'admin')",
+               (os.environ.get("ADMIN_NAME", "Administrador"), email, generate_password_hash(clave)))

@@ -24,6 +24,22 @@
   {% if not google_habilitado %}
     <p class="ayuda">El administrador debe configurar las credenciales de Google para activar esta opción.</p>
   {% endif %}
-  <p class="aparte">¿No tenés cuenta? <a href="{{ url_for('registro') }}">Registrate</a></p>
+  <a class="btn btn-sec facebook-btn" href="{{ url_for('login_facebook', next=request.args.get('next', '')) }}">
+    <span aria-hidden="true">f</span> Continuar con Facebook
+  </a>
+  {% if not facebook_habilitado %}
+    <p class="ayuda">El administrador debe configurar las credenciales de Facebook para activar esta opción.</p>
+  {% endif %}
+  <a class="btn btn-sec telefono-btn" href="{{ url_for('telefono_solicitar', modo='login') }}">
+    <span aria-hidden="true">📱</span> Continuar con mi teléfono
+  </a>
+  {% if not sms_habilitado %}
+    {% if vercel_runtime %}
+      <p class="ayuda">La pasarela SMS de Android solo funciona en una red local; este sitio está alojado en Vercel.</p>
+    {% else %}
+      <p class="ayuda">Para iniciar sesión por teléfono, primero vinculalo a tu cuenta. Configurá SMS Gateway con un Android en la misma red Wi-Fi.</p>
+    {% endif %}
+  {% endif %}
+  <p class="aparte">¿No tenés cuenta? <a href="{{ url_for('registro') }}">Registrate con tu correo</a></p>
 </section>
 {% endblock %}

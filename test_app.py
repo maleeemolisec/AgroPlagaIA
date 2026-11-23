@@ -1,5 +1,5 @@
 """Pruebas automáticas de AgroPlaga IA (python test_app.py). Usa una base temporal."""
-import io, os, re, sys, tempfile, json
+import io, os, re, sys, tempfile, json, urllib.error
 from types import SimpleNamespace
 from unittest.mock import patch
 tmp = tempfile.mkdtemp()
@@ -8,6 +8,7 @@ os.environ["GEMINI_API_KEY"] = ""
 sys.argv = ["seed.py", "--force"]
 import seed; seed.main()
 import app as A, ia
+A.app.config.update(SMTP_USERNAME="test", SMTP_PASSWORD="test", SMTP_FROM="test@example.com")   # simula SMTP configurado
 from PIL import Image
 
 ok = fail = 0
@@ -192,7 +193,7 @@ check("Google rechaza correo sin verificar",
 A.app.config["GOOGLE_OAUTH_ENABLED"] = False
 check("POST sin CSRF rechazado (400)", c.post("/login", data={"email": "x", "password": "y"}).status_code == 400)
 r = login(c, "productor@agroplaga.com", "mala")
-check("Login con clave incorrecta falla", "incorrectos" in r.get_data(as_text=True))
+check("Login con clave incorrecta falla", "Contraseña incorrecta" in r.get_data(as_text=True))
 r = login(c, "productor@agroplaga.com", "Productor2026")
 check("Login productor correcto", "Hola, Productor" in r.get_data(as_text=True))
 check("Perfil permite mostrar ambas contraseñas",
@@ -209,16 +210,25 @@ r = c2.post("/registro", data={"_csrf": t, "nombre": "Ana", "email": "mala", "pa
 check("Registro con datos inválidos muestra errores", "no es válido" in r.get_data(as_text=True))
 smtp_anterior = {k: A.app.config[k] for k in ("SMTP_USERNAME", "SMTP_PASSWORD", "SMTP_FROM")}
 A.app.config.update(SMTP_USERNAME="", SMTP_PASSWORD="", SMTP_FROM="")
-r = c2.post("/registro", data={
-    "_csrf": t, "nombre": "Sin SMTP", "email": "sin-smtp@test.com",
-    "password": "Clave1234", "password2": "Clave1234",
-})
+registro_sin_verificar_anterior = os.environ.get("REGISTRO_SIN_VERIFICAR")
+os.environ["REGISTRO_SIN_VERIFICAR"] = "1"
+try:
+    r = c2.post("/registro", data={
+        "_csrf": t, "nombre": "Sin SMTP", "email": "sin-smtp@test.com",
+        "password": "Clave1234", "password2": "Clave1234",
+    })
+finally:
+    if registro_sin_verificar_anterior is None:
+        os.environ.pop("REGISTRO_SIN_VERIFICAR", None)
+    else:
+        os.environ["REGISTRO_SIN_VERIFICAR"] = registro_sin_verificar_anterior
 A.app.config.update(smtp_anterior)
 pendiente_sin_smtp = A.dbm.DB().uno(
     "SELECT email FROM email_verifications WHERE email = ?", ("sin-smtp@test.com",))
-check("Registro sin SMTP muestra aviso y no deja una cuenta/verificación falsa",
+cuenta_sin_smtp = A.dbm.DB().uno("SELECT id FROM usuarios WHERE email = ?", ("sin-smtp@test.com",))
+check("Registro sin SMTP no crea una cuenta aunque haya una variable de bypass",
       r.status_code == 200 and "No se pudo enviar el correo" in r.get_data(as_text=True)
-      and pendiente_sin_smtp is None)
+      and pendiente_sin_smtp is None and cuenta_sin_smtp is None)
 codigos_registro = []
 with patch.object(A, "enviar_codigo_verificacion",
                   side_effect=lambda email, nombre, codigo: codigos_registro.append(codigo)):
@@ -245,13 +255,43 @@ check("Campo inválido rechazado", "obligatorio" in r.get_data(as_text=True))
 r = c.post("/campos/nuevo", data={"_csrf": t, "nombre": "Campo Test", "localidad": "Villa María", "provincia": "Córdoba", "superficie_ha": "50", "latitud": "-31.4", "longitud": "-63.0"}, follow_redirects=True)
 check("Alta de campo", "Campo registrado" in r.get_data(as_text=True))
 cid = A.dbm.DB().uno("SELECT id FROM campos WHERE nombre='Campo Test'")["id"]
-r = c.post(f"/campos/{cid}/lotes/nuevo", data={"_csrf": t, "nombre": "Lote T", "cultivo_id": "1", "superficie_ha": "10", "fecha_siembra": "2026-10-01", "estado": "activo"}, follow_redirects=True)
+limite_lote = json.dumps({"type": "Polygon", "coordinates": [[
+    [-63.0, -31.4], [-62.999, -31.4], [-62.999, -31.399],
+    [-63.0, -31.399], [-63.0, -31.4],
+]]})
+r = c.post(f"/campos/{cid}/lotes/nuevo", data={
+    "_csrf": t, "nombre": "Lote T", "cultivo_id": "1", "superficie_ha": "10",
+    "fecha_siembra": "2026-10-01", "estado": "activo", "limite_geojson": limite_lote,
+}, follow_redirects=True)
 check("Alta de lote", "Lote registrado" in r.get_data(as_text=True))
 lid = A.dbm.DB().uno("SELECT id FROM lotes WHERE nombre='Lote T'")["id"]
+limite_guardado = A.dbm.DB().uno("SELECT limite_geojson FROM lotes WHERE id=?", (lid,))["limite_geojson"]
+check("El perímetro GeoJSON del lote queda guardado", json.loads(limite_guardado)["type"] == "Polygon")
+r = c.post(f"/lotes/{lid}/editar", data={
+    "_csrf": t, "nombre": "Lote T", "cultivo_id": "1", "estado": "activo",
+    "limite_geojson": '{"type":"Polygon","coordinates":[[[0,0],[1,1],[2,2]]]}',
+}, follow_redirects=True)
+check("Perímetro inválido es rechazado sin perder el guardado",
+      "perímetro dibujado no es válido" in r.get_data(as_text=True)
+      and A.dbm.DB().uno("SELECT limite_geojson FROM lotes WHERE id=?", (lid,))["limite_geojson"] == limite_guardado)
+html_analisis_lote = c.get("/analisis/nuevo").get_data(as_text=True)
+check("Formulario de análisis incluye perímetro guardado del lote",
+      "data-limite=" in html_analisis_lote and "Lote T" in html_analisis_lote)
+html_zona_lote = c.get(f"/analisis/zona?lote={lid}").get_data(as_text=True)
+check("Mapa satelital permite seleccionar lote y mostrar su perímetro",
+      "mapaZona" in html_zona_lote and "data-limite=" in html_zona_lote)
+r = c.get("/api/mapa-agricola.geojson").get_json()
+check("Mapa agrícola incluye límites de lotes dibujados",
+      any(lote.get("limite_geojson") for feature in r["features"]
+          for lote in feature["properties"]["lotes"]))
 r = c.post(f"/campos/{cid}/editar", data={"_csrf": t, "nombre": "Campo Test 2", "superficie_ha": "60"}, follow_redirects=True)
 check("Modificación de campo", "Campo Test 2" in r.get_data(as_text=True))
 
 print("== Análisis con IA (modo demo, sin API key)")
+zona_demo = ia.analizar_zona(foto().getvalue(), -31.4, -63.0, "Soja")
+check("Modo demo satelital no publica porcentajes verdes ficticios",
+      zona_demo["motor"] == "demo" and "matriz_vegetacion" not in zona_demo
+      and "NDVI" in zona_demo["comentario"])
 t = csrf(c, "/analisis/nuevo")
 r = c.post("/analisis/nuevo", data={"_csrf": t, "lote_id": str(lid), "foto": (foto(), "hoja.jpg")}, content_type="multipart/form-data", follow_redirects=True)
 h = r.get_data(as_text=True)
@@ -292,9 +332,32 @@ r = c.get("/analisis?estado=enfermo&cultivo=1")
 check("Filtros de listado funcionan", r.status_code == 200)
 g = c.get("/api/analisis.geojson").get_json()
 check("GeoJSON de análisis válido", g["type"] == "FeatureCollection" and len(g["features"]) > 0)
+pagina_mapa = c.get("/mapa-agricola")
+check("Mapa productivo requiere sesión y carga", pagina_mapa.status_code == 200
+      and b"Mapa productivo de Argentina" in pagina_mapa.data)
+mapa_geojson = c.get("/api/mapa-agricola.geojson").get_json()
+check("Mapa productivo incluye cultivos de campos geolocalizados",
+      mapa_geojson["type"] == "FeatureCollection"
+      and any(f["properties"]["lotes"] for f in mapa_geojson["features"]))
+with patch.object(ia, "fecha_ndvi_disponible", return_value="2026-11-16"):
+    fecha_ndvi = c.get("/api/mapa-agricola/ndvi-fecha").get_json()
+check("Endpoint informa fecha disponible de NDVI",
+      fecha_ndvi["fecha"] == "2026-11-16" and "NASA" in fecha_ndvi["fuente"])
 
 print("== IA con Gemini simulada (respuesta JSON del modelo)")
 os.environ["GEMINI_API_KEY"] = "clave-falsa"
+respuesta_gemini = io.BytesIO(json.dumps({
+    "candidates": [{"content": {"parts": [{"text": "OK"}]}}]
+}).encode("utf-8"))
+error_gemini_503 = urllib.error.HTTPError(
+    "https://generativelanguage.googleapis.com", 503, "busy", {}, io.BytesIO(b'{"error":{"message":"busy"}}'))
+ia._modelo_ok["nombre"] = None
+with patch.object(ia, "GEMINI_MODEL", "modelo-configurado"), \
+        patch("ia.urllib.request.urlopen", side_effect=[error_gemini_503, respuesta_gemini]) as llamadas_gemini:
+    respuesta = ia._gemini([{"text": "prueba"}], json_mode=False)
+check("Gemini prueba otro modelo si el primero responde HTTP 503",
+      respuesta == "OK" and llamadas_gemini.call_count == 2
+      and "/models/gemini-3.5-flash-lite:" in llamadas_gemini.call_args_list[1][0][0].full_url)
 ia._gemini = lambda partes, json_mode=True, timeout=60: json.dumps({
     "es_planta": True, "cultivo_identificado": "Soja", "coincide_con_lote": True, "estado": "enfermo",
     "enfermedad": "Roya asiática de la soja", "confianza": 0.87, "severidad": "media",

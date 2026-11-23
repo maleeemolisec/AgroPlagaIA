@@ -5,9 +5,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const lat = document.getElementById("latitud"), lng = document.getElementById("longitud");
   const inicio = [parseFloat(lat.value) || -32.0, parseFloat(lng.value) || -63.5];   // centro de Córdoba
   const mapa = L.map("mapa").setView(inicio, lat.value ? 14 : 7);
-  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-    { maxZoom: 19, attribution: "&copy; OpenStreetMap" }).addTo(mapa);
+  L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    { maxZoom: 19, attribution: "Tiles &copy; Esri" }).addTo(mapa);
   let marcador = lat.value ? L.marker(inicio).addTo(mapa) : null;
+  let limite = null;
 
   function poner(la, lo, centrar) {
     lat.value = la.toFixed(6); lng.value = lo.toFixed(6);
@@ -20,6 +21,20 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!isNaN(a) && !isNaN(o)) poner(a, o, true);
   }));
 
+  function mostrarLimite(texto) {
+    if (limite) mapa.removeLayer(limite);
+    limite = null;
+    if (!texto) return;
+    try {
+      limite = L.geoJSON(JSON.parse(texto), {
+        style: { color: "#ff3b30", weight: 4, opacity: 0.95, fillColor: "#ff3b30", fillOpacity: 0.12 }
+      }).addTo(mapa);
+      mapa.fitBounds(limite.getBounds(), { maxZoom: 16 });
+    } catch (error) {
+      console.error("No se pudo mostrar el perímetro del lote.", error);
+    }
+  }
+
   const b = document.getElementById("btnUbicacion");
   if (b) b.addEventListener("click", () => {
     if (!navigator.geolocation) return alert("Tu navegador no permite geolocalización.");
@@ -29,5 +44,5 @@ document.addEventListener("DOMContentLoaded", () => {
       () => { alert("No se pudo obtener la ubicación. Verificá los permisos."); b.textContent = "📍 Usar mi ubicación"; },
       { enableHighAccuracy: true, timeout: 10000 });
   });
-  window._mapaSelector = { mapa, poner };
+  window._mapaSelector = { mapa, poner, mostrarLimite };
 });

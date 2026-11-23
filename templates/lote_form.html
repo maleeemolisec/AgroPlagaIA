@@ -1,5 +1,9 @@
 {% extends 'base.html' %}
 {% block titulo %}{{ 'Nuevo lote' if nuevo else 'Editar lote' }}{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css">
+{% endblock %}
 {% block contenido %}
 <section class="tarjeta formulario angosto">
   <h1>{{ 'Nuevo lote' if nuevo else 'Editar lote' }} <small>en {{ campo.nombre }}</small></h1>
@@ -18,8 +22,18 @@
         {% for e in ['activo','cosechado','barbecho'] %}<option value="{{ e }}" {{ 'selected' if lote.estado == e }}>{{ e|capitalize }}</option>{% endfor %}
       </select></label>
     </div>
+    <p class="ayuda">En el satélite, elegí el ícono de polígono y marcá el perímetro real del lote. Terminá con doble clic; podés editarlo o borrarlo antes de guardar. Es gratis. La línea queda guardada para el mapa y los análisis de este lote.</p>
+    <div id="mapaLote" class="mapa"
+      data-lat="{{ campo.latitud if campo.latitud is not none else -32.0 }}"
+      data-lng="{{ campo.longitud if campo.longitud is not none else -63.5 }}"></div>
+    <input type="hidden" name="limite_geojson" id="limite_geojson" value="{{ lote.limite_geojson or '' }}">
     <div class="acciones"><button class="btn" type="submit">Guardar</button>
       <a class="btn btn-sec" href="{{ url_for('campo_ver', cid=campo.id) }}">Cancelar</a></div>
   </form>
 </section>
+{% endblock %}
+{% block scripts %}
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
+<script src="{{ url_for('static', filename='js/mapa_lote.js') }}"></script>
 {% endblock %}

@@ -12,6 +12,7 @@
   </div>
 </div>
 {% if a.motor == 'demo' %}<div class="alerta alerta-warning">Este análisis se hizo en <b>modo demo</b> (sin IA externa): solo se calculó el índice de daño por color.</div>{% endif %}
+{% for al in a.alertas|json_lista %}<div class="alerta alerta-warning">📍 {{ al }}</div>{% endfor %}
 <section class="grilla-2">
   <article class="tarjeta">
     <img class="foto" src="{{ url_for('analisis_foto', aid=a.id) }}" alt="Fotografía analizada">
@@ -35,6 +36,7 @@
     {% set c = a.causas|json_lista %}{% if c %}<h3>Posibles causas</h3><ul>{% for x in c %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
     {% set r = a.recomendaciones|json_lista %}{% if r %}<h3>Recomendaciones de inspección</h3><ul>{% for x in r %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
     {% if enf and enf.recomendacion %}<h3>Del catálogo: {{ enf.nombre }}</h3><p>{{ enf.recomendacion }}</p>{% endif %}
+    {% if a.comentario_ia %}<h3>Comentario de la IA</h3><p>{{ a.comentario_ia }}</p>{% endif %}
     {% if a.observaciones %}<h3>Observaciones</h3><p>{{ a.observaciones }}</p>{% endif %}
     <p class="aviso">⚠️ {{ aviso }}</p>
   </article>

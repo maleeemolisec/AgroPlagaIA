@@ -15,7 +15,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // Al elegir lote, centrar el mapa en su campo (si tiene ubicación)
   function centrar() {
     const o = lote.options[lote.selectedIndex];
-    if (!o || !o.dataset.lat || !window._mapaSelector) return;
+    if (!o || !window._mapaSelector) return;
+    window._mapaSelector.mostrarLimite(o.dataset.limite);
+    if (!o.dataset.lat || !o.dataset.lng) return;
     const la = parseFloat(o.dataset.lat), lo = parseFloat(o.dataset.lng);
     if (!isNaN(la) && !document.getElementById("latitud").value) window._mapaSelector.mapa.setView([la, lo], 14);
   }

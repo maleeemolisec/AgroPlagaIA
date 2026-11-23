@@ -1,4 +1,5 @@
 import hashlib
+import base64
 import hmac
 import io
 import json
@@ -21,6 +22,7 @@ from flask import (Flask, abort, flash, g, jsonify, redirect, render_template,
 from joserfc.errors import JoseError
 from PIL import Image, UnidentifiedImageError
 from requests.exceptions import RequestException
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.security import check_password_hash, generate_password_hash
 
 
@@ -39,6 +41,8 @@ _cargar_env()   # debe ejecutarse ANTES de importar database e ia (leen variable
 
 import database as dbm  # noqa: E402
 import ia  # noqa: E402
+import sms  # noqa: E402
+import ubicacion  # noqa: E402
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "static", "uploads")
@@ -61,7 +65,22 @@ app.config["SMTP_PORT"] = int(os.environ.get("SMTP_PORT", "587"))
 app.config["SMTP_USERNAME"] = os.environ.get("SMTP_USERNAME", "").strip()
 app.config["SMTP_PASSWORD"] = os.environ.get("SMTP_PASSWORD", "").strip()
 app.config["SMTP_FROM"] = os.environ.get("SMTP_FROM", app.config["SMTP_USERNAME"]).strip()
+app.config["FACEBOOK_CLIENT_ID"] = (os.environ.get("FACEBOOK_CLIENT_ID") or os.environ.get("FACEBOOK_APP_ID", "")).strip()
+app.config["FACEBOOK_CLIENT_SECRET"] = (os.environ.get("FACEBOOK_CLIENT_SECRET") or os.environ.get("FACEBOOK_APP_SECRET", "")).strip()
+app.config["FACEBOOK_REDIRECT_URI"] = os.environ.get("FACEBOOK_REDIRECT_URI", "").strip()
+app.config["FACEBOOK_OAUTH_ENABLED"] = bool(app.config["FACEBOOK_CLIENT_ID"] and app.config["FACEBOOK_CLIENT_SECRET"])
+if VERCEL_RUNTIME:       # detrás del proxy de Vercel: respetar https y el host real en las URLs
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 oauth = OAuth(app)
+facebook_oauth = oauth.register(
+    name="facebook",
+    client_id=app.config["FACEBOOK_CLIENT_ID"],
+    client_secret=app.config["FACEBOOK_CLIENT_SECRET"],
+    access_token_url="https://graph.facebook.com/v19.0/oauth/access_token",
+    authorize_url="https://www.facebook.com/v19.0/dialog/oauth",
+    api_base_url="https://graph.facebook.com/v19.0/",
+    client_kwargs={"scope": "email public_profile"},
+)
 google_oauth = oauth.register(
     name="google",
     client_id=app.config["GOOGLE_CLIENT_ID"],
@@ -129,12 +148,16 @@ def inyectar():
         "csrf_token": session["csrf"],
         "ia_real": bool(ia.api_key()),
         "google_habilitado": app.config["GOOGLE_OAUTH_ENABLED"],
+        "facebook_habilitado": app.config["FACEBOOK_OAUTH_ENABLED"],
+        "sms_habilitado": sms.configurado(),
+        "vercel_runtime": VERCEL_RUNTIME,
     }
 
 
 @app.before_request
 def antes():
     g.user = None
+    dbm.asegurar_base()      # crea las tablas que falten en Neon/SQLite/MySQL (una vez por proceso)
     uid = session.get("uid")
     if uid:
         u = db().uno("SELECT id, nombre, email, rol, activo FROM usuarios WHERE id = ?", (uid,))
@@ -491,13 +514,23 @@ def login():
         email = request.form.get("email", "").strip().lower()
         clave = request.form.get("password", "")
         u = db().uno("SELECT * FROM usuarios WHERE email = ?", (email,))
-        if u and u["activo"] and check_password_hash(u["password_hash"], clave):
-            destino = request.args.get("next", "")
-            if not destino.startswith("/") or destino.startswith("//"):
-                destino = url_for("dashboard")
-            return _iniciar_sesion(u["id"], destino)
-        flash("Correo o contraseña incorrectos.", "danger")
+        if not u:
+            flash("No existe una cuenta con ese correo. Revisá cómo lo escribiste o creá una cuenta.", "danger")
+        elif not u["activo"]:
+            flash("Tu cuenta está desactivada. Contactá al administrador.", "danger")
+        elif check_password_hash(u["password_hash"], clave) or check_password_hash(u["password_hash"], clave.strip()):
+            return _iniciar_sesion(u["id"], destino_seguro(request.args.get("next", "")))
+        else:
+            flash("Contraseña incorrecta. Podés mostrarla con el botón «Mostrar». Si ingresaste con Google, "
+                  "Facebook o teléfono, usá ese mismo método.", "danger")
     return render_template("login.html")
+
+
+def destino_seguro(destino):
+    destino = destino or ""
+    if not destino.startswith("/") or destino.startswith("//"):
+        return url_for("dashboard")
+    return destino
 
 
 @app.route("/login/google")
@@ -560,6 +593,173 @@ def callback_google():
     return redirect(destino)
 
 
+# --------------------------------------------------------------------------
+# Inicio de sesión con Facebook
+# --------------------------------------------------------------------------
+def _email_ficticio(prefijo, ident):
+    """Construye el correo interno conservado en registros antiguos sin email real."""
+    return f"{prefijo}{re.sub(r'[^a-zA-Z0-9]', '', str(ident))}@{prefijo}.agroplaga.invalid"
+
+
+@app.template_filter("correo_visible")
+def correo_visible(email):
+    return "—" if str(email).endswith(".agroplaga.invalid") else email
+
+
+@app.route("/login/facebook")
+def login_facebook():
+    if not app.config["FACEBOOK_OAUTH_ENABLED"]:
+        flash("El inicio con Facebook todavía no está configurado.", "warning")
+        return redirect(url_for("login"))
+    session["facebook_next"] = destino_seguro(request.args.get("next", ""))
+    redirect_uri = app.config["FACEBOOK_REDIRECT_URI"] or url_for("callback_facebook", _external=True)
+    return facebook_oauth.authorize_redirect(redirect_uri=redirect_uri)
+
+
+@app.route("/login/facebook/callback")
+def callback_facebook():
+    if not app.config["FACEBOOK_OAUTH_ENABLED"]:
+        flash("El inicio con Facebook todavía no está configurado.", "warning")
+        return redirect(url_for("login"))
+    try:
+        token = facebook_oauth.authorize_access_token()
+        # Facebook confirma que la cuenta existe y es de quien inicia sesión
+        datos = facebook_oauth.get("me?fields=id,name,email", token=token).json()
+    except (OAuthError, JoseError, RequestException, ValueError):
+        session.pop("facebook_next", None)
+        flash("No se pudo validar el acceso con Facebook. Intentá de nuevo.", "danger")
+        return redirect(url_for("login"))
+    fb_id = str(datos.get("id") or "")
+    if not fb_id:
+        session.pop("facebook_next", None)
+        flash("Facebook no devolvió una cuenta válida.", "danger")
+        return redirect(url_for("login"))
+    email = str(datos.get("email") or "").strip().lower()
+    nombre = str(datos.get("name") or "").strip() or "Usuario de Facebook"
+
+    ident = db().uno("SELECT usuario_id FROM identidades WHERE proveedor = 'facebook' AND proveedor_uid = ?", (fb_id,))
+    uid = ident["usuario_id"] if ident else None
+    if uid is None:
+        if not EMAIL_RE.match(email):
+            session.pop("facebook_next", None)
+            flash("Facebook no compartió un correo válido. Creá tu cuenta con correo y verificá el código.", "danger")
+            return redirect(url_for("registro"))
+        usuario = db().uno("SELECT id FROM usuarios WHERE email = ?", (email,))
+        if not usuario:
+            session.pop("facebook_next", None)
+            flash("Primero creá tu cuenta con correo y verificá el código; después podrás vincular Facebook.", "info")
+            return redirect(url_for("registro"))
+        uid = usuario["id"]                       # solo se vincula una cuenta ya creada por correo verificado
+        db().ejecutar("INSERT INTO identidades (usuario_id, proveedor, proveedor_uid) VALUES (?, 'facebook', ?)",
+                      (uid, fb_id), devolver_id=False)
+    u = db().uno("SELECT activo FROM usuarios WHERE id = ?", (uid,))
+    if not u or not u["activo"]:
+        session.pop("facebook_next", None)
+        flash("Esta cuenta está desactivada. Contactá al administrador.", "danger")
+        return redirect(url_for("login"))
+    destino = session.pop("facebook_next", url_for("dashboard"))
+    return _iniciar_sesion(uid, destino)
+
+
+# --------------------------------------------------------------------------
+# Inicio de sesión / registro / vinculación con número de teléfono (código por SMS)
+# --------------------------------------------------------------------------
+SMS_REENVIO = 60
+SMS_INTENTOS = 5
+MODOS_TEL = {"login": "Ingresar con tu teléfono", "registro": "Crear cuenta con tu teléfono",
+             "vincular": "Vincular un teléfono a tu cuenta"}
+
+
+def _usuario_por_telefono(tel):
+    return db().uno("SELECT id, activo FROM usuarios WHERE telefono = ?", (tel,))
+
+
+@app.route("/telefono/<modo>", methods=["GET", "POST"])
+def telefono_solicitar(modo):
+    if modo not in MODOS_TEL:
+        abort(404)
+    if modo == "registro":
+        flash("Primero creá y verificá una cuenta con tu correo. Después podrás vincularle tu teléfono.", "info")
+        return redirect(url_for("registro"))
+    if modo == "vincular" and not g.user:
+        flash("Iniciá sesión para vincular un teléfono.", "warning")
+        return redirect(url_for("login", next=url_for("perfil")))
+    if request.method == "POST":
+        tel = sms.normalizar(request.form.get("telefono", ""))
+        if not tel:
+            flash("Ingresá el número con código de país, por ejemplo +54 9 351 1234567.", "danger")
+            return render_template("telefono.html", modo=modo, titulo=MODOS_TEL[modo], telefono=request.form.get("telefono", ""))
+        existente = _usuario_por_telefono(tel)
+        if modo == "login":
+            if not existente:
+                flash("No existe una cuenta con ese número. Creá una cuenta y verificá tu correo antes de vincularlo.", "warning")
+                return redirect(url_for("registro"))
+            if not existente["activo"]:
+                flash("Esa cuenta está desactivada. Contactá al administrador.", "danger")
+                return redirect(url_for("login"))
+        elif existente and existente["id"] != g.user["id"]:
+            flash("Ese número ya está asociado a otra cuenta.", "danger")
+            return redirect(url_for("perfil"))
+        flujo = session.get("tel_flujo") or {}
+        mismo = flujo.get("telefono") == tel and flujo.get("modo") == modo
+        if mismo and time.time() - flujo.get("enviado", 0) < SMS_REENVIO:
+            flash("Ya te enviamos un código. Esperá un minuto antes de pedir otro.", "info")
+        else:
+            ok, msg = sms.enviar_codigo(tel)
+            if not ok:
+                flash(msg, "danger")
+                return render_template("telefono.html", modo=modo, titulo=MODOS_TEL[modo], telefono=tel, nombre=nombre)
+            flash(msg, "success")
+            flujo = {"modo": modo, "telefono": tel, "enviado": time.time(), "intentos": 0}
+        session["tel_flujo"] = flujo
+        return redirect(url_for("telefono_codigo"))
+    return render_template("telefono.html", modo=modo, titulo=MODOS_TEL[modo], telefono="+54 9 ")
+
+
+@app.route("/telefono/codigo", methods=["GET", "POST"])
+def telefono_codigo():
+    flujo = session.get("tel_flujo")
+    if not flujo:
+        flash("Primero ingresá tu número de teléfono.", "warning")
+        return redirect(url_for("login"))
+    modo, tel = flujo["modo"], flujo["telefono"]
+    if request.method == "POST":
+        if request.form.get("accion") == "reenviar":
+            if time.time() - flujo.get("enviado", 0) < SMS_REENVIO:
+                flash("Esperá un minuto antes de pedir otro código.", "info")
+            else:
+                ok, msg = sms.enviar_codigo(tel)
+                flash(msg, "success" if ok else "danger")
+                if ok:
+                    flujo["enviado"], flujo["intentos"] = time.time(), 0
+                    session["tel_flujo"] = flujo
+            return redirect(url_for("telefono_codigo"))
+        flujo["intentos"] = flujo.get("intentos", 0) + 1
+        session["tel_flujo"] = flujo
+        if flujo["intentos"] > SMS_INTENTOS:
+            session.pop("tel_flujo", None)
+            flash("Demasiados intentos. Pedí un código nuevo.", "danger")
+            return redirect(url_for("telefono_solicitar", modo=modo))
+        ok, msg = sms.verificar_codigo(tel, request.form.get("codigo", ""))
+        if not ok:
+            flash(msg, "danger")
+            return render_template("telefono_codigo.html", modo=modo, titulo=MODOS_TEL[modo], tel_oculto=sms.enmascarar(tel))
+        session.pop("tel_flujo", None)
+        # ✔ Número verificado: la persona recibió el SMS, el número existe y es suyo
+        if modo == "login":
+            u = _usuario_por_telefono(tel)
+            if not u or not u["activo"]:
+                flash("No se encontró una cuenta activa con ese número.", "danger")
+                return redirect(url_for("login"))
+            return _iniciar_sesion(u["id"])
+        if not g.user:
+            return redirect(url_for("login"))
+        db().ejecutar("UPDATE usuarios SET telefono = ? WHERE id = ?", (tel, g.user["id"]), devolver_id=False)
+        flash("Teléfono verificado y vinculado a tu cuenta.", "success")
+        return redirect(url_for("perfil"))
+    return render_template("telefono_codigo.html", modo=modo, titulo=MODOS_TEL[modo], tel_oculto=sms.enmascarar(tel))
+
+
 @app.route("/logout", methods=["POST"])
 def logout():
     session.clear()
@@ -590,7 +790,8 @@ def perfil():
                           (generate_password_hash(nueva), g.user["id"]))
         flash("Perfil actualizado.", "success")
         return redirect(url_for("perfil"))
-    return render_template("perfil.html")
+    u = db().uno("SELECT email, telefono FROM usuarios WHERE id = ?", (g.user["id"],))
+    return render_template("perfil.html", perfil_email=u["email"], telefono=u["telefono"])
 
 
 # ==========================================================================
@@ -668,6 +869,65 @@ def api_campos():
          "properties": {"nombre": c["nombre"], "url": url_for("campo_ver", cid=c["id"])}} for c in filas]})
 
 
+@app.route("/mapa-agricola")
+@login_required
+def mapa_agricola():
+    return render_template("mapa_agricola.html", cultivos=cultivos_todos())
+
+
+@app.route("/api/mapa-agricola.geojson")
+@login_required
+def api_mapa_agricola_geojson():
+    sc, sp = alcance("c")
+    filas = db().todos(
+        "SELECT c.id, c.nombre AS campo, c.localidad, c.provincia, c.latitud, c.longitud, "
+        "l.id AS lote_id, l.nombre AS lote, l.superficie_ha, l.limite_geojson, cu.nombre AS cultivo "
+        "FROM campos c LEFT JOIN lotes l ON l.campo_id = c.id AND l.estado = 'activo' "
+        "LEFT JOIN cultivos cu ON cu.id = l.cultivo_id "
+        "WHERE c.latitud IS NOT NULL AND c.longitud IS NOT NULL" + sc +
+        " ORDER BY c.nombre, l.nombre", sp)
+    campos = {}
+    for fila in filas:
+        campo = campos.setdefault(fila["id"], {
+            "campo": fila["campo"],
+            "localidad": fila["localidad"],
+            "provincia": fila["provincia"],
+            "latitud": fila["latitud"],
+            "longitud": fila["longitud"],
+            "lotes": [],
+        })
+        if fila["lote_id"] is not None:
+            campo["lotes"].append({
+                "nombre": fila["lote"],
+                "cultivo": fila["cultivo"],
+                "superficie_ha": fila["superficie_ha"],
+                "limite_geojson": fila["limite_geojson"],
+            })
+    return jsonify({
+        "type": "FeatureCollection",
+        "features": [{
+            "type": "Feature",
+            "geometry": {"type": "Point", "coordinates": [campo["longitud"], campo["latitud"]]},
+            "properties": {
+                "campo": campo["campo"],
+                "localidad": campo["localidad"],
+                "provincia": campo["provincia"],
+                "lotes": campo["lotes"],
+                "url": url_for("campo_ver", cid=cid),
+            },
+        } for cid, campo in campos.items()],
+    })
+
+
+@app.route("/api/mapa-agricola/ndvi-fecha")
+@login_required
+def api_mapa_agricola_ndvi_fecha():
+    try:
+        return jsonify({"fecha": ia.fecha_ndvi_disponible(), "fuente": "NASA MODIS Terra NDVI 8-day"})
+    except ia.ErrorIA as error:
+        return jsonify({"error": str(error)}), 502
+
+
 # ==========================================================================
 # 4. Campos y lotes (CRUD)
 # ==========================================================================
@@ -732,6 +992,8 @@ def campo_nuevo():
             (g.user["id"], datos["nombre"], datos["localidad"], datos["provincia"],
              datos["superficie_ha"], datos["latitud"], datos["longitud"]))
         flash("Campo registrado. Ahora agregá sus lotes.", "success")
+        for al in ubicacion.evaluar(datos["latitud"], datos["longitud"]) if datos["latitud"] is not None else []:
+            flash("📍 " + al, "warning")
         return redirect(url_for("campo_ver", cid=cid))
     return render_template("campo_form.html", campo={"provincia": "Córdoba"}, nuevo=True)
 
@@ -788,7 +1050,8 @@ def leer_lote_form():
     f = request.form
     datos = {"nombre": f.get("nombre", "").strip(), "cultivo_id": f.get("cultivo_id", type=int),
              "superficie_ha": a_float(f.get("superficie_ha"), 0, 1000000),
-             "fecha_siembra": f.get("fecha_siembra") or None, "estado": f.get("estado", "activo")}
+             "fecha_siembra": f.get("fecha_siembra") or None, "estado": f.get("estado", "activo"),
+             "limite_geojson": None}
     errores = []
     if len(datos["nombre"]) < 1:
         errores.append("El nombre del lote es obligatorio.")
@@ -803,6 +1066,40 @@ def leer_lote_form():
             datetime.strptime(datos["fecha_siembra"], "%Y-%m-%d")
         except ValueError:
             errores.append("La fecha de siembra no es válida.")
+    limite = f.get("limite_geojson", "").strip()
+    if limite:
+        if len(limite) > 200000:
+            errores.append("El perímetro es demasiado grande. Dibujá un límite más simple.")
+        else:
+            try:
+                geometria = json.loads(limite)
+                anillos = geometria.get("coordinates") if geometria.get("type") == "Polygon" else None
+                if not isinstance(anillos, list) or not anillos or len(anillos) > 5:
+                    raise ValueError
+                vertices = 0
+                anillos_normalizados = []
+                for anillo in anillos:
+                    if not isinstance(anillo, list) or len(anillo) < 4:
+                        raise ValueError
+                    vertices += len(anillo)
+                    anillo_normalizado = []
+                    for punto in anillo:
+                        if not isinstance(punto, list) or len(punto) < 2:
+                            raise ValueError
+                        x = a_float(punto[0], -180, 180) if not isinstance(punto[0], bool) else None
+                        y = a_float(punto[1], -90, 90) if not isinstance(punto[1], bool) else None
+                        if x is None or y is None:
+                            raise ValueError
+                        anillo_normalizado.append([x, y])
+                    if anillo_normalizado[0] != anillo_normalizado[-1]:
+                        raise ValueError
+                    anillos_normalizados.append(anillo_normalizado)
+                if vertices > 5000:
+                    raise ValueError
+                datos["limite_geojson"] = json.dumps(
+                    {"type": "Polygon", "coordinates": anillos_normalizados}, separators=(",", ":"))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                errores.append("El perímetro dibujado no es válido. Volvé a marcarlo en el mapa.")
     return datos, errores
 
 
@@ -818,9 +1115,10 @@ def lote_nuevo(cid):
             for e in errores:
                 flash(e, "danger")
             return render_template("lote_form.html", campo=campo, lote=datos, cultivos=cultivos_todos(), nuevo=True)
-        db().ejecutar("INSERT INTO lotes (campo_id, cultivo_id, nombre, superficie_ha, fecha_siembra, estado) "
-                      "VALUES (?,?,?,?,?,?)", (cid, datos["cultivo_id"], datos["nombre"], datos["superficie_ha"],
-                                               datos["fecha_siembra"], datos["estado"]))
+        db().ejecutar("INSERT INTO lotes (campo_id, cultivo_id, nombre, superficie_ha, fecha_siembra, estado, "
+                      "limite_geojson) VALUES (?,?,?,?,?,?,?)",
+                      (cid, datos["cultivo_id"], datos["nombre"], datos["superficie_ha"],
+                       datos["fecha_siembra"], datos["estado"], datos["limite_geojson"]))
         flash("Lote registrado.", "success")
         return redirect(url_for("campo_ver", cid=cid))
     return render_template("lote_form.html", campo=campo, lote={"estado": "activo"}, cultivos=cultivos_todos(), nuevo=True)
@@ -839,9 +1137,10 @@ def lote_editar(lid):
             for e in errores:
                 flash(e, "danger")
             return render_template("lote_form.html", campo=campo, lote=datos, cultivos=cultivos_todos(), nuevo=False)
-        db().ejecutar("UPDATE lotes SET cultivo_id=?, nombre=?, superficie_ha=?, fecha_siembra=?, estado=? WHERE id=?",
+        db().ejecutar("UPDATE lotes SET cultivo_id=?, nombre=?, superficie_ha=?, fecha_siembra=?, estado=?, "
+                      "limite_geojson=? WHERE id=?",
                       (datos["cultivo_id"], datos["nombre"], datos["superficie_ha"], datos["fecha_siembra"],
-                       datos["estado"], lid))
+                       datos["estado"], datos["limite_geojson"], lid))
         flash("Lote actualizado.", "success")
         return redirect(url_for("campo_ver", cid=campo["id"]))
     return render_template("lote_form.html", campo=campo, lote=lote, cultivos=cultivos_todos(), nuevo=False)
@@ -930,6 +1229,17 @@ def borrar_fotos(sql, params):
                 app.logger.warning("No se pudo eliminar la foto local %s", foto, exc_info=True)
 
 
+def _borrar_foto_clave(foto):
+    """Elimina una foto por su clave (blob de Vercel o archivo local)."""
+    try:
+        if foto.startswith("blob:"):
+            _eliminar_blob(foto[5:])
+        else:
+            os.remove(os.path.join(UPLOAD_DIR, os.path.basename(foto)))
+    except (ErrorAlmacenFotos, OSError):
+        app.logger.warning("No se pudo eliminar la foto %s", foto, exc_info=True)
+
+
 def guardar_foto(archivo):
     """Valida y almacena una imagen normalizada; devuelve su clave y los bytes analizados."""
     if not archivo or not archivo.filename:
@@ -969,7 +1279,8 @@ def guardar_foto(archivo):
 def lotes_disponibles():
     sc, sp = alcance("c")
     return db().todos(
-        "SELECT l.id, l.nombre, c.nombre AS campo_nombre, cu.nombre AS cultivo_nombre, c.latitud, c.longitud "
+        "SELECT l.id, l.nombre, c.nombre AS campo_nombre, cu.nombre AS cultivo_nombre, c.latitud, c.longitud, "
+        "l.limite_geojson "
         "FROM lotes l JOIN campos c ON c.id = l.campo_id JOIN cultivos cu ON cu.id = l.cultivo_id "
         "WHERE l.estado = 'activo'" + sc + " ORDER BY c.nombre, l.nombre", sp)
 
@@ -986,6 +1297,46 @@ def buscar_enfermedad(texto, cultivo_id):
         if e["nombre"].lower() == t or t in e["nombre"].lower() or e["nombre"].lower() in t:
             return e["id"]
     return None
+
+
+@app.route("/analisis/zona", methods=["GET", "POST"])
+@login_required
+def analisis_zona():
+    lotes = lotes_disponibles()
+    preseleccion = request.args.get("lote", type=int)
+    if request.method == "POST":
+        preseleccion = request.form.get("lote_id", type=int)
+        lote = next((fila for fila in lotes if fila["id"] == preseleccion), None)
+        if preseleccion and not lote:
+            abort(400, "El lote elegido no está disponible.")
+        lat = a_float(request.form.get("latitud"), -90, 90)
+        lng = a_float(request.form.get("longitud"), -180, 180)
+        zoom = request.form.get("zoom", 17, type=int)
+        if lat is None and lote:
+            lat = lote["latitud"]
+        if lng is None and lote:
+            lng = lote["longitud"]
+        if lat is None or lng is None:
+            abort(400, "Las coordenadas de la zona no son válidas.")
+        zoom = max(15, min(18, zoom))
+        try:
+            mosaico = ia.obtener_mosaico_satelital(lat, lng, zoom=zoom, cantidad=5)
+            salida = io.BytesIO()
+            mosaico.save(salida, "JPEG", quality=88)
+            contenido = salida.getvalue()
+            cultivo = request.form.get("cultivo", "").strip() or (lote["cultivo_nombre"] if lote else None)
+            resultado = ia.analizar_zona(contenido, lat, lng, cultivo)
+            imagen = "data:image/jpeg;base64," + base64.b64encode(contenido).decode("ascii")
+            if request.headers.get("Accept", "").startswith("application/json"):
+                return jsonify({"imagen": imagen, "resultado": resultado})
+            return render_template("analisis_zona.html", lat=lat, lng=lng, zoom=zoom,
+                                   cultivo=cultivo, imagen=imagen, resultado=resultado,
+                                   lotes=lotes, preseleccion=preseleccion)
+        except ia.ErrorIA as e:
+            flash(str(e), "danger")
+    return render_template("analisis_zona.html", lat=-32.0, lng=-63.5, zoom=17,
+                           cultivo=None, imagen=None, resultado=None, lotes=lotes,
+                           preseleccion=preseleccion)
 
 
 @app.route("/analisis")
@@ -1038,23 +1389,38 @@ def analisis_nuevo():
             "SELECT nombre FROM enfermedades WHERE cultivo_id = ? OR cultivo_id IS NULL ORDER BY nombre",
             (lote_db["cultivo_id"],))]
         r = ia.analizar_foto(contenido_foto, lote["cultivo_nombre"], catalogo)
+
+        # 1) ¿La foto corresponde al cultivo del lote? Si no, NO se diagnostica ni se guarda.
+        if r["motor"] == "gemini" and r["coincide_con_lote"] is False:
+            _borrar_foto_clave(nombre_foto)
+            escena = f" ({r['escena']})" if r.get("escena") else ""
+            flash(f"El lote «{lote['nombre']}» está registrado como {lote['cultivo_nombre']}, pero la foto parece mostrar "
+                  f"«{r['cultivo_detectado']}»{escena}. No se analizó para evitar un diagnóstico equivocado. "
+                  f"Elegí el lote correcto, cambiá el cultivo del lote si estaba mal cargado, o subí otra foto.", "danger")
+            return render_template("analisis_form.html", lotes=lotes, preseleccion=lid)
+
+        # 2) Verificación de la ubicación marcada
+        camp = db().uno("SELECT nombre, latitud, longitud, superficie_ha FROM campos WHERE id = ?", (lote_db["campo_id"],))
+        alertas = ubicacion.evaluar(lat, lng, camp["latitud"], camp["longitud"], camp["nombre"], camp["superficie_ha"])
+        comentario = " ".join(x for x in [("Escena: " + r["escena"]) if r.get("escena") else "", r.get("comentario", "")] if x)
+
         enf_id = buscar_enfermedad(r["enfermedad_texto"], lote_db["cultivo_id"])
         aid = db().ejecutar(
             "INSERT INTO analisis (lote_id, usuario_id, foto, latitud, longitud, fecha, cultivo_detectado, estado, "
             "enfermedad_id, enfermedad_texto, confianza, severidad, sintomas, causas, recomendaciones, "
-            "indice_dano, motor, observaciones) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "indice_dano, motor, observaciones, comentario_ia, alertas) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (lid, g.user["id"], nombre_foto, lat, lng, datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
              r["cultivo_detectado"], r["estado"], enf_id, r["enfermedad_texto"], r["confianza"], r["severidad"],
              json.dumps(r["sintomas"], ensure_ascii=False), json.dumps(r["causas"], ensure_ascii=False),
              json.dumps(r["recomendaciones"], ensure_ascii=False), r["indice_dano"], r["motor"],
-             (request.form.get("observaciones", "").strip() or None)))
+             (request.form.get("observaciones", "").strip() or None), comentario or None,
+             json.dumps(alertas, ensure_ascii=False)))
         if r["motor"] == "demo":
-            flash("Análisis guardado en MODO DEMO (sin IA externa). Configurá GEMINI_API_KEY para el análisis completo.", "warning")
-        elif not r.get("coincide_con_lote", True):
-            flash(f"Atención: la IA identificó «{r['cultivo_detectado']}», que no coincide con el cultivo del lote "
-                  f"({lote['cultivo_nombre']}).", "warning")
+            flash("Análisis guardado en MODO DEMO: la IA no se pudo usar. Motivo: " + r.get("error_ia", "desconocido"), "warning")
         else:
             flash("Análisis completado.", "success")
+        for al in alertas:
+            flash("📍 " + al, "warning")
         return redirect(url_for("analisis_ver", aid=aid))
     return render_template("analisis_form.html", lotes=lotes, preseleccion=request.args.get("lote", type=int))
 
@@ -1231,6 +1597,30 @@ def admin_usuario_editar(uid):
         return redirect(url_for("admin_usuarios"))
     db().ejecutar("UPDATE usuarios SET rol = ?, activo = ? WHERE id = ?", (rol, activo, uid))
     flash("Usuario actualizado.", "success")
+    return redirect(url_for("admin_usuarios"))
+
+
+@app.route("/admin/ia")
+@login_required
+@roles_required("admin")
+def admin_ia():
+    ok, mensaje = ia.probar_conexion()
+    clave = ia.api_key()
+    return render_template("admin_ia.html", ok=ok, mensaje=mensaje, modelo=ia.GEMINI_MODEL,
+                           clave="•••• " + clave[-4:] if clave else "NO DETECTADA")
+
+
+@app.route("/admin/usuarios/<int:uid>/clave", methods=["POST"])
+@login_required
+@roles_required("admin")
+def admin_usuario_clave(uid):
+    nueva = request.form.get("nueva", "").strip()
+    if len(nueva) < 8 or not re.search(r"\d", nueva) or not re.search(r"[A-Za-z]", nueva):
+        flash("La contraseña debe tener 8 o más caracteres, con letras y números.", "danger")
+    else:
+        db().ejecutar("UPDATE usuarios SET password_hash = ? WHERE id = ?", (generate_password_hash(nueva), uid),
+                      devolver_id=False)
+        flash("Contraseña restablecida.", "success")
     return redirect(url_for("admin_usuarios"))
 
 

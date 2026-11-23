@@ -4,9 +4,20 @@ Resultado: `https://TU_USUARIO.pythonanywhere.com`. El plan gratuito permite la 
 (`*.googleapis.com` está en su lista de sitios permitidos). Un dominio propio (ej. `agroplaga.com`) requiere plan pago.
 
 1. Crear cuenta en pythonanywhere.com (plan "Beginner", gratis).
-2. **Files** → subí `agroplaga.zip` a `/home/TU_USUARIO/` y en una consola **Bash**:
+2. **Files** → subí `agroplaga.zip` a `/home/TU_USUARIO/`. En una consola **Bash**, comprobá que estás en tu carpeta de inicio y que el ZIP existe:
    ```bash
-   unzip agroplaga.zip && cd agroplaga
+   cd ~
+   ls -lh agroplaga.zip
+   unzip -l agroplaga.zip | head
+   unzip agroplaga.zip
+   ```
+   Entrá a la carpeta que contiene los archivos del proyecto. Si el ZIP creó `agroplaga/`:
+   ```bash
+   cd ~/agroplaga
+   ls requirements.txt seed.py .env.example
+   ```
+   El último comando debe listar los tres archivos. Si dice que no existen, todavía no estás en la carpeta correcta: buscá `requirements.txt` dentro de lo extraído con `find ~ -maxdepth 5 -name requirements.txt -print` y usá `cd` con la carpeta que lo contiene. Recién ahí ejecutá:
+   ```bash
    python3 -m venv venv && source venv/bin/activate
    pip install -r requirements.txt
    cp .env.example .env && nano .env      # completá SECRET_KEY y GEMINI_API_KEY
@@ -32,11 +43,24 @@ Pestaña **Databases** → creá una base MySQL, y en `.env`:
 y corré `python seed.py --force`. (El soporte MySQL está implementado pero probado solo con SQLite: probalo antes de la entrega.)
 
 ## Probar en tu PC
+En **Windows PowerShell**, ejecutá cada línea por separado. No uses `&&`:
+```powershell
+python -m venv venv
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+.\venv\Scripts\python.exe seed.py
+.\venv\Scripts\python.exe app.py                # http://127.0.0.1:5000
+```
+Si ya tenés un entorno `.venv`, no crees otro: reemplazá `.\venv\Scripts\python.exe` por `.\.venv\Scripts\python.exe` en las líneas de Python. No vuelvas a copiar `.env.example` encima de un `.env` ya configurado.
+
+En Linux o macOS:
 ```bash
-python -m venv venv && venv\Scripts\activate    # Linux/Mac: source venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
-copy .env.example .env                          # completá GEMINI_API_KEY y credenciales de Google
-python seed.py && python app.py                 # http://127.0.0.1:5000
+cp .env.example .env                          # solo si todavía no existe .env
+python seed.py
+python app.py                                 # http://127.0.0.1:5000
 ```
 Usuarios de prueba: `admin@agroplaga.com / Admin2026`, `tecnico@agroplaga.com / Tecnico2026`, `productor@agroplaga.com / Productor2026`.
 
@@ -68,6 +92,16 @@ Este comando inserta únicamente cultivos o enfermedades faltantes; no borra cue
 2. En Vercel → **Settings** → **Environment Variables**, crea estas tres variables por separado para **Production**: `SMTP_USERNAME` con tu dirección Gmail, `SMTP_PASSWORD` con la contraseña de aplicación y `SMTP_FROM` con la misma dirección Gmail. No escribas las tres dentro del valor de `DATABASE_URL`. Si no defines `SMTP_HOST` y `SMTP_PORT`, se usan `smtp.gmail.com` y `587`.
 3. En Vercel redepliega el proyecto para aplicar las variables.
 4. El registro envía un código de 6 dígitos, válido por 10 minutos. Luego de validarlo, se crea la cuenta y la sesión queda iniciada. No publiques la contraseña de aplicación ni la guardes en Git.
+
+### SMS de teléfono sin proveedor de pago
+Para enviar SMS de inicio de sesión o vinculación sin Twilio, se puede usar un teléfono Android con SIM como pasarela local:
+1. Instalá [SMS Gateway para Android](https://github.com/capcom6/android-sms-gateway/releases) en un Android 5 o superior. Otorgá el permiso para enviar SMS.
+2. Conectá el teléfono y la PC que ejecuta AgroPlaga a la misma Wi-Fi. En la app, activá **Local Server** y luego **Start Service**.
+3. En el teléfono anotá la IP local, el puerto, el usuario y la contraseña que muestra. No compartas esas credenciales.
+4. En el `.env` de AgroPlaga, configura `SMS_GATEWAY_URL=http://IP_DEL_TELEFONO:PUERTO`, `SMS_GATEWAY_USERNAME` y `SMS_GATEWAY_PASSWORD`. Reiniciá Flask.
+5. Probá iniciar sesión con un teléfono o vincularlo desde el perfil. El SMS sale de tu SIM y puede descontarse de tu plan o tener costo según tu operadora.
+
+Esta modalidad local funciona únicamente si AgroPlaga corre en la PC conectada a la misma Wi-Fi que el teléfono. No funciona en PythonAnywhere ni Vercel, porque los servidores remotos no pueden acceder a la IP privada del teléfono en tu red. No expongas el servidor local de SMS directamente a Internet.
 
 Las fotos en Vercel requieren un almacenamiento persistente externo, configurado en los pasos siguientes.
 

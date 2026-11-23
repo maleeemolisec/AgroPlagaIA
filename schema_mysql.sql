@@ -69,6 +69,7 @@ CREATE TABLE lotes (
     superficie_ha DOUBLE,
     fecha_siembra DATE NULL,
     estado        ENUM('activo','cosechado','barbecho') NOT NULL DEFAULT 'activo',
+    limite_geojson LONGTEXT,
     FOREIGN KEY (campo_id) REFERENCES campos(id) ON DELETE CASCADE,
     FOREIGN KEY (cultivo_id) REFERENCES cultivos(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -139,3 +139,8 @@ dt{font-weight:600;color:var(--gris)}dd{margin:0 0 .4rem}
   .topbar,.pie,.sin-imprimir,.btn{display:none!important}
   body{background:#fff}.solo-imprimir{display:block}.tarjeta,.kpi{box-shadow:none}
 }
+
+/* Inicio de sesión con Facebook y teléfono */
+.facebook-btn,.telefono-btn{display:flex;align-items:center;justify-content:center;gap:.55rem;width:100%;border-color:var(--borde);color:var(--texto);margin-top:.6rem}
+.facebook-btn span{font-weight:700;color:#1877f2;font-size:1.1rem}
+.inline-bloque{margin-top:.6rem}.inline-bloque .btn{width:100%}

@@ -67,7 +67,8 @@ CREATE TABLE lotes (
     superficie_ha DOUBLE PRECISION,
     fecha_siembra DATE,
     estado        VARCHAR(10) NOT NULL DEFAULT 'activo'
-                  CHECK (estado IN ('activo','cosechado','barbecho'))
+                  CHECK (estado IN ('activo','cosechado','barbecho')),
+    limite_geojson TEXT
 );
 
 CREATE TABLE analisis (

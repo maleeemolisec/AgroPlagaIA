@@ -18,6 +18,8 @@
       <a href="{{ url_for('dashboard') }}">Panel</a>
       <a href="{{ url_for('campos_lista') }}">Campos</a>
       <a href="{{ url_for('analisis_lista') }}">Análisis</a>
+      <a href="{{ url_for('mapa_agricola') }}">Mapa productivo</a>
+      <a href="{{ url_for('analisis_zona') }}">Zona satelital</a>
       <a href="{{ url_for('informes_lista') }}">Informes</a>
       <a href="{{ url_for('enfermedades_lista') }}">Enfermedades</a>
       {% if g.user.rol == 'admin' %}

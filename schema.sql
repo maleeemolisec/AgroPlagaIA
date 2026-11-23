@@ -66,7 +66,8 @@ CREATE TABLE lotes (
     nombre        TEXT NOT NULL,
     superficie_ha REAL,
     fecha_siembra TEXT,
-    estado        TEXT NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo','cosechado','barbecho'))
+    estado        TEXT NOT NULL DEFAULT 'activo' CHECK (estado IN ('activo','cosechado','barbecho')),
+    limite_geojson TEXT
 );
 
 CREATE TABLE analisis (
